@@ -1,0 +1,34 @@
+{
+  "name": "pi-lite-subagent",
+  "version": "0.1.0",
+  "description": "<PLACEHOLDER>",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension"
+  ],
+  "license": "MIT",
+  "author": "gszj2018",
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./extension/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
