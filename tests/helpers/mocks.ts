@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@eare
 
 type LifecycleHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
+// noinspection JSUnusedGlobalSymbols
 export class MockPi {
   readonly handlers = new Map<string, Set<LifecycleHandler>>();
   readonly tools = new Map<string, any>();

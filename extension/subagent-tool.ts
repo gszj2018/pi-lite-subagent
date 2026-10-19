@@ -27,7 +27,6 @@ import type { DispatchDefaults, OnUpdateCallback, SingleResult, SubagentDetails,
 
 const MAX_TASKS = 8;
 const MAX_CONCURRENCY = 4;
-const COLLAPSED_ITEM_COUNT = 10;
 
 type ExecutionMode = "parallel" | "chain";
 

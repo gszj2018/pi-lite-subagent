@@ -28,6 +28,7 @@ export interface MockProcScript {
   ignoreTerm?: boolean;
 }
 
+// noinspection JSUnusedGlobalSymbols
 export class MockChildProcess extends EventEmitter {
   readonly stdout = new EventEmitter();
   readonly stderr = new EventEmitter();

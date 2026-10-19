@@ -15,6 +15,7 @@ import { isSubagentToolAllowed, registerSessionEnv } from "./env-vars.ts";
 import { registerSubagentTool } from "./subagent-tool.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
 
+// noinspection JSUnusedGlobalSymbols
 export default function setup(pi: ExtensionAPI): void {
   const parsed = parseArgs(process.argv.slice(2));
   const deps: SubagentRunnerDeps = {
