@@ -40,7 +40,8 @@ export function getFinalOutput(messages: SingleResult["messages"]): string {
 }
 
 export function isFailedResult(result: SingleResult): boolean {
-  return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+  if (result.state.status !== "exited") return false;
+  return result.state.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
 export function getResultOutput(result: SingleResult): string {
@@ -155,7 +156,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
       agent: agentName,
       agentSource: "unknown",
       task,
-      exitCode: 1,
+      state: { status: "exited", exitCode: 1 },
       messages: [],
       stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
       usage: emptyUsageStats(),
@@ -168,7 +169,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
     agent: agentName,
     agentSource: agent.source,
     task,
-    exitCode: 0,
+    state: { status: "running" },
     messages: [],
     stderr: "",
     usage: emptyUsageStats(),
@@ -206,7 +207,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
 
     let wasAborted = false;
 
-    currentResult.exitCode = await new Promise<number>((resolve) => {
+    const exitCode = await new Promise<number>((resolve) => {
       const invocation = getPiInvocation({ ...deps.piLaunch, args });
       const proc = deps.spawn(invocation.command, invocation.args, {
         cwd: ctx.cwd,
@@ -295,6 +296,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
         else signal.addEventListener("abort", killProc, { once: true });
       }
     });
+    currentResult.state = { status: "exited", exitCode };
     if (wasAborted) throw new Error("Subagent was aborted");
     return currentResult;
   } finally {

@@ -333,7 +333,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         agent: t.agent,
         agentSource: "unknown",
         task: t.task,
-        exitCode: -1, // -1 = still running
+        state: { status: "running" },
         messages: [],
         stderr: "",
         usage: emptyUsageStats(),
@@ -341,8 +341,8 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
 
       const emitParallelUpdate = () => {
         if (onUpdate) {
-          const running = allResults.filter((r) => r.exitCode === -1).length;
-          const done = allResults.filter((r) => r.exitCode !== -1).length;
+          const running = allResults.filter((r) => r.state.status === "running").length;
+          const done = allResults.length - running;
           onUpdate({
             content: [{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` }],
             details: makeDetails([...allResults]),
@@ -469,7 +469,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       const isChain = details.mode === "chain";
 
       const resultIcon = (r: SingleResult) =>
-        r.exitCode === -1
+        r.state.status === "running"
           ? theme.fg("warning", "⏳")
           : isFailedResult(r)
             ? theme.fg("error", "✗")
@@ -506,24 +506,23 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       const collapsedResultText = (r: SingleResult) => {
         const items = getDisplayItems(r.messages);
         let text = `\n\n${sectionHeader(r)}`;
-        if (items.length === 0) text += `\n${theme.fg("muted", r.exitCode === -1 ? "(running...)" : "(no output)")}`;
+        if (items.length === 0) text += `\n${theme.fg("muted", r.state.status === "running" ? "(running...)" : "(no output)")}`;
         else text += `\n${renderDisplayItems(items, 5)}`;
         return text;
       };
 
-      const running = details.results.filter((r) => r.exitCode === -1).length;
-      const successCount = details.results.filter((r) => r.exitCode !== -1 && !isFailedResult(r)).length;
-      const failCount = details.results.filter((r) => r.exitCode !== -1 && isFailedResult(r)).length;
+      const running = details.results.filter((r) => r.state.status === "running").length;
+      const failCount = details.results.filter((r) => isFailedResult(r)).length;
+      const successCount = details.results.length - running - failCount;
       const isRunning = running > 0;
-      const icon = isChain
-        ? failCount > 0
-          ? theme.fg("error", "✗")
-          : theme.fg("success", "✓")
-        : isRunning
-          ? theme.fg("warning", "⏳")
-          : failCount > 0
-            ? theme.fg("warning", "◐")
-            : theme.fg("success", "✓");
+      // Any task still running shows the hourglass in both modes.
+      const icon = isRunning
+        ? theme.fg("warning", "⏳")
+        : failCount > 0
+          ? isChain
+            ? theme.fg("error", "✗")
+            : theme.fg("warning", "◐")
+          : theme.fg("success", "✓");
       const status = isChain
         ? `${successCount}/${details.results.length} steps`
         : isRunning

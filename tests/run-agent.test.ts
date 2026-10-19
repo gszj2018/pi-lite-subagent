@@ -147,7 +147,7 @@ test("runSingleAgent aggregates usage and captures stop metadata", async () => {
     makeDetails,
   });
 
-  assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.state, { status: "exited", exitCode: 0 });
   assert.equal(result.messages.length, 3);
   assert.equal(result.usage.turns, 2);
   assert.equal(result.usage.input, 20);
@@ -176,7 +176,7 @@ test("runSingleAgent short-circuits unknown agents without spawning", async () =
     makeDetails,
   });
 
-  assert.equal(result.exitCode, 1);
+  assert.deepEqual(result.state, { status: "exited", exitCode: 1 });
   assert.equal(result.agentSource, "unknown");
   assert.match(result.stderr, /Unknown agent: "missing"/);
   assert.match(result.stderr, /"known"/);
@@ -198,7 +198,7 @@ test("runSingleAgent reports non-zero exits and collects stderr", async () => {
     makeDetails,
   });
 
-  assert.equal(result.exitCode, 7);
+  assert.deepEqual(result.state, { status: "exited", exitCode: 7 });
   assert.equal(result.stderr, "boom\n");
   assert.equal(result.messages.length, 1);
 });
@@ -216,7 +216,7 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async ()
     makeDetails,
   });
 
-  assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.state, { status: "exited", exitCode: 0 });
   const args = spawnMock.calls[0].args;
   const index = args.indexOf("--append-system-prompt");
   assert.notEqual(index, -1);
@@ -344,7 +344,7 @@ test("runSingleAgent spawns with the built child env", async () => {
     dispatchDefaults: {},
     makeDetails,
   });
-  assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.state, { status: "exited", exitCode: 0 });
 
   const env = spawnMock.calls[0].options.env as Record<string, string | undefined>;
   assert.equal(env[DEPTH_ENV], "1");
