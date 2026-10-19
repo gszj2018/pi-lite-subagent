@@ -6,7 +6,7 @@ import type { AgentConfig } from "../extension/agents.ts";
 import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.ts";
 import { buildPiArgs, getPiInvocation, isPathSafeSessionId, runSingleAgent } from "../extension/run-agent.ts";
 import type { InheritedExtensionArgs, SingleResult, SubagentDetails, SubagentRunnerDeps } from "../extension/types.ts";
-import { makeTempDir } from "./helpers/agents-fixture.ts";
+import { makeTempDir, withTempUserAgents } from "./helpers/agents-fixture.ts";
 import {
   MockSpawn,
   assistantMessage,
@@ -33,11 +33,15 @@ function makeDetails(results: SingleResult[]): SubagentDetails {
   return { mode: "parallel", agentScope: "user", projectAgentsDir: null, results };
 }
 
-function makeDeps(spawnMock: MockSpawn, extensionArgs: InheritedExtensionArgs = noExtensionArgs): SubagentRunnerDeps {
+function makeDeps(
+  spawnMock: MockSpawn,
+  agentDir: string,
+  extensionArgs: InheritedExtensionArgs = noExtensionArgs,
+): SubagentRunnerDeps {
   return {
     spawn: spawnMock.spawn,
     env: {},
-    agentDir: "unused-agent-dir",
+    agentDir,
     piLaunch: { execPath: "/fake/bin/pi-runtime" },
     extensionArgs,
   };
@@ -125,7 +129,8 @@ test("buildPiArgs places inherited extension flags first in short form", () => {
   assert.deepEqual(bare.slice(0, 4), ["--mode", "json", "-p", "--no-session"]);
 });
 
-test("runSingleAgent aggregates usage and captures stop metadata", async () => {
+test("runSingleAgent aggregates usage and captures stop metadata", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([
     {
       stdoutLines: [
@@ -137,7 +142,7 @@ test("runSingleAgent aggregates usage and captures stop metadata", async () => {
   ]);
   const { ctx } = createContext({ cwd: "/workspace" });
   const result = await runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -162,11 +167,12 @@ test("runSingleAgent aggregates usage and captures stop metadata", async () => {
   assert.equal(spawnMock.calls[0].options.cwd, "/workspace");
 });
 
-test("runSingleAgent short-circuits unknown agents without spawning", async () => {
+test("runSingleAgent short-circuits unknown agents without spawning", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn();
   const { ctx } = createContext();
   const result = await runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent({ name: "known" })],
     agentName: "missing",
@@ -182,13 +188,14 @@ test("runSingleAgent short-circuits unknown agents without spawning", async () =
   assert.equal(spawnMock.calls.length, 0);
 });
 
-test("runSingleAgent reports non-zero exits and collects stderr", async () => {
+test("runSingleAgent reports non-zero exits and collects stderr", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([
     { stderr: "boom\n", exitCode: 7, stdoutLines: [messageEndEvent(assistantMessage("partial"))] },
   ]);
   const { ctx } = createContext();
   const result = await runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -202,11 +209,12 @@ test("runSingleAgent reports non-zero exits and collects stderr", async () => {
   assert.equal(result.messages.length, 1);
 });
 
-test("runSingleAgent writes and cleans up the system-prompt temp file", async () => {
+test("runSingleAgent writes and cleans up the system-prompt temp file", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{}]);
   const { ctx } = createContext();
   const result = await runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent({ systemPrompt: "You are helpful." })],
     agentName: "worker",
@@ -226,11 +234,12 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async ()
 
 test("runSingleAgent aborts with SIGTERM and reports an aborted run", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true }]);
   const { ctx } = createContext();
   const controller = new AbortController();
   const promise = runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -247,11 +256,12 @@ test("runSingleAgent aborts with SIGTERM and reports an aborted run", async (t) 
 
 test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true, ignoreTerm: true }]);
   const { ctx } = createContext();
   const controller = new AbortController();
   const promise = runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -273,11 +283,12 @@ test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) =>
 
 test("runSingleAgent does not leave a pending kill timer when the process closes promptly", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true }]);
   const { ctx } = createContext();
   const controller = new AbortController();
   const promise = runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -331,11 +342,12 @@ test("getPiInvocation resolves the launch from injected inputs", async (t) => {
   );
 });
 
-test("runSingleAgent spawns with the built child env", async () => {
+test("runSingleAgent spawns with the built child env", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
   const { ctx } = createContext();
   const result = await runSingleAgent({
-    deps: { ...makeDeps(spawnMock), env: { [PARENT_SESSION_ENV]: "sess-root", PATH: "/bin" } },
+    deps: { ...makeDeps(spawnMock, agentDir), env: { [PARENT_SESSION_ENV]: "sess-root", PATH: "/bin" } },
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -376,12 +388,13 @@ test("isPathSafeSessionId accepts only simple path-safe ids", () => {
 });
 
 test("runSingleAgent persists subagent sessions under the parent session dir", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   const tmp = await makeTempDir("pi-lite-session-");
   t.after(tmp.cleanup);
   const spawnMock = new MockSpawn([{}]);
   const { ctx } = createContext({ sessionDir: tmp.dir, sessionId: "sess-7" });
   const result = await runSingleAgent({
-    deps: makeDeps(spawnMock),
+    deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -401,10 +414,11 @@ test("runSingleAgent persists subagent sessions under the parent session dir", a
 });
 
 test("runSingleAgent falls back to --no-session when persistence is not possible", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   // No session dir configured (no persistence).
   const noDir = new MockSpawn([{}]);
   await runSingleAgent({
-    deps: makeDeps(noDir),
+    deps: makeDeps(noDir, agentDir),
     ctx: createContext().ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -417,7 +431,7 @@ test("runSingleAgent falls back to --no-session when persistence is not possible
   // Unsafe session id: never touches the file system.
   const unsafe = new MockSpawn([{}]);
   await runSingleAgent({
-    deps: makeDeps(unsafe),
+    deps: makeDeps(unsafe, agentDir),
     ctx: createContext({ sessionDir: "/nonexistent-root", sessionId: "../evil" }).ctx,
     agents: [makeAgent()],
     agentName: "worker",
@@ -433,7 +447,7 @@ test("runSingleAgent falls back to --no-session when persistence is not possible
   await fs.promises.writeFile(path.join(tmp.dir, "lite-subagent"), "file, not a directory", "utf-8");
   const blocked = new MockSpawn([{}]);
   await runSingleAgent({
-    deps: makeDeps(blocked),
+    deps: makeDeps(blocked, agentDir),
     ctx: createContext({ sessionDir: tmp.dir, sessionId: "s1" }).ctx,
     agents: [makeAgent()],
     agentName: "worker",

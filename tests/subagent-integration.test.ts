@@ -6,26 +6,13 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { type TestContext, test } from "node:test";
+import { test } from "node:test";
 import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import type { ProcessEnvLike, SubagentRunnerDeps } from "../extension/types.ts";
-import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
+import { makeTempDir, withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { MockSpawn, assistantMessage, messageEndEvent } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext } from "./helpers/mocks.ts";
-
-/** Real temp agent directory with one worker agent (empty system prompt keeps spawn timing simple). */
-async function withFixtureAgents(t: TestContext): Promise<string> {
-  const tmp = await makeTempDir("pi-lite-int-agents-");
-  t.after(tmp.cleanup);
-  const agentDir = path.join(tmp.dir, "agent-dir");
-  await writeAgentFile(
-    path.join(agentDir, "agents"),
-    "worker.md",
-    agentMarkdown({ name: "worker", description: "d" }, ""),
-  );
-  return agentDir;
-}
 
 function makeDeps(spawnMock: MockSpawn, agentDir: string, env: ProcessEnvLike = {}): SubagentRunnerDeps {
   return {
@@ -38,7 +25,7 @@ function makeDeps(spawnMock: MockSpawn, agentDir: string, env: ProcessEnvLike = 
 }
 
 test("integration: parallel run spawns children with the full args/env/cwd contract", async (t) => {
-  const agentDir = await withFixtureAgents(t);
+  const { agentDir } = await withTempUserAgents(t);
   const pi = new MockPi();
   const spawnMock = new MockSpawn([
     { stdoutLines: [messageEndEvent(assistantMessage("alpha-output"))] },
@@ -84,7 +71,7 @@ test("integration: parallel run spawns children with the full args/env/cwd contr
 });
 
 test("integration: chain run threads {previous} and reports the final output", async (t) => {
-  const agentDir = await withFixtureAgents(t);
+  const { agentDir } = await withTempUserAgents(t);
   const pi = new MockPi();
   const spawnMock = new MockSpawn([
     { stdoutLines: [messageEndEvent(assistantMessage("RESULT-42"))] },
@@ -115,7 +102,7 @@ test("integration: chain run threads {previous} and reports the final output", a
 });
 
 test("integration: parent-session persistence creates the dir and emits --session-dir", async (t) => {
-  const agentDir = await withFixtureAgents(t);
+  const { agentDir } = await withTempUserAgents(t);
   const sessionRoot = await makeTempDir("pi-lite-int-sess-");
   t.after(sessionRoot.cleanup);
 

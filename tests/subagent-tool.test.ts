@@ -1,27 +1,11 @@
 import assert from "node:assert/strict";
-import * as path from "node:path";
-import { type TestContext, test } from "node:test";
+import { test } from "node:test";
 import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
-import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
+import { withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { removeTruncationArtifact } from "./helpers/cleanup.ts";
 import { MockSpawn, assistantMessage, messageEndEvent, type MockProcScript } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext, flushPromises } from "./helpers/mocks.ts";
-
-/** Create a temp user agent dir (empty system prompts keep spawn timing deterministic); agentDir is injected via deps. */
-async function withTempUserAgents(
-  t: TestContext,
-  agents: Record<string, string> = { "worker.md": agentMarkdown({ name: "worker", description: "d" }, "") },
-): Promise<{ agentDir: string }> {
-  const tmp = await makeTempDir("pi-lite-tool-agents-");
-  t.after(tmp.cleanup);
-  const agentDir = path.join(tmp.dir, "agent-dir");
-  const userAgents = path.join(agentDir, "agents");
-  for (const [fileName, content] of Object.entries(agents)) {
-    await writeAgentFile(userAgents, fileName, content);
-  }
-  return { agentDir };
-}
 
 function setupTool(agentDir: string, scripts: MockProcScript[] = []) {
   const pi = new MockPi();
@@ -38,9 +22,10 @@ function setupTool(agentDir: string, scripts: MockProcScript[] = []) {
   return { pi, tool, spawnMock };
 }
 
-test("project/both scope fails on untrusted projects without spawning", async () => {
+test("project/both scope fails on untrusted projects without spawning", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
   for (const agentScope of ["project", "both"] as const) {
-    const { tool, spawnMock } = setupTool("unused-agent-dir");
+    const { tool, spawnMock } = setupTool(agentDir);
     const { ctx } = createContext({ trusted: false });
     const result = await tool.execute(
       "c1",
