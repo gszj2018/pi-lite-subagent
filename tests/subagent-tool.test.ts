@@ -169,7 +169,7 @@ test("parallel mode bounds concurrency and reports per-task summaries", async (t
   assert.match(result.content[0].text, /### \[worker\] completed/);
   assert.equal(result.details.mode, "parallel");
   assert.equal(result.details.results.length, 6);
-  for (const r of result.details.results) assert.deepEqual(r.state, { status: "exited", exitCode: 0 });
+  for (const r of result.details.results) assert.equal(r.exitCode, 0);
 });
 
 test("a single task completes in either mode", async (t) => {

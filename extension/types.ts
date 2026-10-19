@@ -68,15 +68,13 @@ export interface UsageStats {
   turns: number;
 }
 
-/** Lifecycle state of one task: still running, or exited with a code. */
-export type TaskState = { status: "running" } | { status: "exited"; exitCode: number };
-
 /** Full result of one subagent run; kept complete even when model-facing text is truncated. */
 export interface SingleResult {
   agent: string;
   agentSource: "user" | "project" | "unknown";
   task: string;
-  state: TaskState;
+  /** Process exit code; `undefined` while the task is still running. */
+  exitCode: number | undefined;
   messages: Message[];
   stderr: string;
   usage: UsageStats;

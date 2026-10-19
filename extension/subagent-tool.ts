@@ -322,7 +322,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         agent: t.agent,
         agentSource: "unknown",
         task: t.task,
-        state: { status: "running" },
+        exitCode: undefined,
         messages: [],
         stderr: "",
         usage: emptyUsageStats(),
@@ -330,7 +330,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
 
       const emitParallelUpdate = () => {
         if (onUpdate) {
-          const running = allResults.filter((r) => r.state.status === "running").length;
+          const running = allResults.filter((r) => r.exitCode === undefined).length;
           const done = allResults.length - running;
           onUpdate({
             content: [{ type: "text", text: `Parallel: ${done}/${allResults.length} done, ${running} running...` }],
@@ -460,7 +460,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       const isChain = details.mode === "chain";
 
       const resultIcon = (r: SingleResult) =>
-        r.state.status === "running"
+        r.exitCode === undefined
           ? theme.fg("warning", "⏳")
           : isFailedResult(r)
             ? theme.fg("error", "✗")
@@ -497,12 +497,12 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       const collapsedResultText = (r: SingleResult) => {
         const items = getDisplayItems(r.messages);
         let text = `\n\n${sectionHeader(r)}`;
-        if (items.length === 0) text += `\n${theme.fg("muted", r.state.status === "running" ? "(running...)" : "(no output)")}`;
+        if (items.length === 0) text += `\n${theme.fg("muted", r.exitCode === undefined ? "(running...)" : "(no output)")}`;
         else text += `\n${renderDisplayItems(items, 5)}`;
         return text;
       };
 
-      const running = details.results.filter((r) => r.state.status === "running").length;
+      const running = details.results.filter((r) => r.exitCode === undefined).length;
       const failCount = details.results.filter((r) => isFailedResult(r)).length;
       const successCount = details.results.length - running - failCount;
       const isRunning = running > 0;

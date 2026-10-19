@@ -53,7 +53,7 @@ test("integration: parallel run spawns children with the full args/env/cwd contr
   assert.equal(result.details.mode, "parallel");
   assert.equal(result.details.agentScope, "user");
   assert.equal(result.details.results.length, 2);
-  for (const r of result.details.results) assert.deepEqual(r.state, { status: "exited", exitCode: 0 });
+  for (const r of result.details.results) assert.equal(r.exitCode, 0);
 
   assert.equal(spawnMock.calls.length, 2);
   for (const call of spawnMock.calls) {
