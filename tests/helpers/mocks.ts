@@ -10,6 +10,8 @@ type LifecycleHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 export class MockPi {
   readonly handlers = new Map<string, Set<LifecycleHandler>>();
   readonly tools = new Map<string, any>();
+  readonly entryRenderers = new Map<string, (entry: any, options: any, theme: any) => unknown>();
+  readonly appendedEntries: { customType: string; data?: unknown }[] = [];
 
   readonly api = {
     on: (event: string, handler: LifecycleHandler) => {
@@ -27,15 +29,23 @@ export class MockPi {
     registerTool: (tool: { name: string }) => {
       this.tools.set(tool.name, tool);
     },
+    registerEntryRenderer: (customType: string, renderer: (entry: any, options: any, theme: any) => unknown) => {
+      this.entryRenderers.set(customType, renderer);
+    },
+    appendEntry: (customType: string, data?: unknown) => {
+      this.appendedEntries.push({ customType, data });
+    },
   } as unknown as ExtensionAPI;
 
   async emitLifecycle(
     event: string,
     ctx: ExtensionContext,
     detail: string | Record<string, unknown> = "startup",
-  ): Promise<void> {
+  ): Promise<unknown[]> {
     const payload = typeof detail === "string" ? { type: event, reason: detail } : { type: event, ...detail };
-    for (const handler of [...(this.handlers.get(event) ?? [])]) await handler(payload, ctx);
+    const results: unknown[] = [];
+    for (const handler of [...(this.handlers.get(event) ?? [])]) results.push(await handler(payload, ctx));
+    return results;
   }
 
   count(event: string): number {
