@@ -36,6 +36,12 @@ export function isSubagentSession(env: ProcessEnvLike): boolean {
   return parseSubagentDepth(env[DEPTH_ENV]) !== undefined;
 }
 
+/** The agent name of the current subagent session: non-empty `PI_SUBAGENT_NAME`, or undefined. */
+export function getSubagentName(env: ProcessEnvLike): string | undefined {
+  const name = env[NAME_ENV];
+  return typeof name === "string" && name.trim() !== "" ? name : undefined;
+}
+
 /** Whether the `subagent` tool may be registered: depths at or beyond the limit stay leaf nodes. */
 export function isSubagentToolAllowed(env: ProcessEnvLike): boolean {
   return (parseSubagentDepth(env[DEPTH_ENV]) ?? 0) < MAX_SUBAGENT_DEPTH;

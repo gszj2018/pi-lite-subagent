@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import { DEPTH_ENV, NAME_ENV, parseSubagentDepth } from "./env-vars.ts";
+import { getSubagentName, isSubagentSession } from "./env-vars.ts";
 import type { ProcessEnvLike } from "./types.ts";
 
 /** Custom entry type marking a session as a subagent session. */
@@ -41,9 +41,9 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike)
   // Appending happens only inside subagent sessions, and only once per session.
   pi.on("before_agent_start", () => {
     if (hasActiveAgentEntry) return;
-    if (parseSubagentDepth(env[DEPTH_ENV]) === undefined) return;
-    const name = env[NAME_ENV];
-    if (typeof name !== "string" || name.trim() === "") return;
+    if (!isSubagentSession(env)) return;
+    const name = getSubagentName(env);
+    if (name === undefined) return;
     pi.appendEntry<ActiveAgentEntryData>(ACTIVE_AGENT_ENTRY_TYPE, { name });
     hasActiveAgentEntry = true;
   });

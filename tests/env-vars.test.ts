@@ -6,6 +6,7 @@ import {
   NAME_ENV,
   PARENT_SESSION_ENV,
   buildChildEnv,
+  getSubagentName,
   isSubagentSession,
   isSubagentToolAllowed,
   parseSubagentDepth,
@@ -47,6 +48,13 @@ test("isSubagentSession and isSubagentToolAllowed gate on the parsed depth", () 
   assert.equal(isSubagentToolAllowed({ [DEPTH_ENV]: "1" }), false);
   assert.equal(isSubagentToolAllowed({ [DEPTH_ENV]: String(MAX_SUBAGENT_DEPTH) }), false);
   assert.equal(isSubagentToolAllowed({ [DEPTH_ENV]: "99" }), false);
+});
+
+test("getSubagentName returns only non-empty agent names", () => {
+  assert.equal(getSubagentName({}), undefined);
+  assert.equal(getSubagentName({ [NAME_ENV]: "" }), undefined);
+  assert.equal(getSubagentName({ [NAME_ENV]: "   " }), undefined);
+  assert.equal(getSubagentName({ [NAME_ENV]: "worker" }), "worker");
 });
 
 test("buildChildEnv bumps depth, sets the agent name and inherits the parent pointer", () => {
