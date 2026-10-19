@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { test } from "node:test";
 import { discoverAgents, parseThinkingLevel } from "../extension/agents.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
@@ -17,8 +17,8 @@ test("parseThinkingLevel accepts every supported level and rejects anything else
 test("agent files parse tolerantly: tools normalization, optional fields, invalid files skipped", async (t) => {
   const tmp = await makeTempDir("pi-lite-agents-");
   t.after(tmp.cleanup);
-  const agentDir = join(tmp.dir, "agent-dir");
-  const userAgents = join(agentDir, "agents");
+  const agentDir = path.join(tmp.dir, "agent-dir");
+  const userAgents = path.join(agentDir, "agents");
   await writeAgentFile(
     userAgents,
     "string-tools.md",
@@ -55,7 +55,7 @@ test("agent files parse tolerantly: tools normalization, optional fields, invali
 test("missing agent directories yield no agents and no project directory", async (t) => {
   const tmp = await makeTempDir("pi-lite-agents-");
   t.after(tmp.cleanup);
-  const missingAgentDir = join(tmp.dir, "missing-agent-dir");
+  const missingAgentDir = path.join(tmp.dir, "missing-agent-dir");
 
   for (const scope of ["user", "project", "both"] as const) {
     const result = discoverAgents(missingAgentDir, tmp.dir, scope);
@@ -67,10 +67,10 @@ test("missing agent directories yield no agents and no project directory", async
 test("scope selects user/project/both and project overrides same-name user agents", async (t) => {
   const tmp = await makeTempDir("pi-lite-agents-");
   t.after(tmp.cleanup);
-  const agentDir = join(tmp.dir, "agent-dir");
-  const userAgents = join(agentDir, "agents");
-  const project = join(tmp.dir, "project");
-  const projectAgents = join(project, ".pi", "agents");
+  const agentDir = path.join(tmp.dir, "agent-dir");
+  const userAgents = path.join(agentDir, "agents");
+  const project = path.join(tmp.dir, "project");
+  const projectAgents = path.join(project, ".pi", "agents");
   await writeAgentFile(userAgents, "ua.md", agentMarkdown({ name: "user-only", description: "user agent" }));
   await writeAgentFile(userAgents, "shared.md", agentMarkdown({ name: "shared", description: "from user" }, "USER PROMPT"));
   await writeAgentFile(projectAgents, "pa.md", agentMarkdown({ name: "project-only", description: "project agent" }));
@@ -96,15 +96,15 @@ test("scope selects user/project/both and project overrides same-name user agent
 test("project agents resolve to the nearest .pi/agents directory", async (t) => {
   const tmp = await makeTempDir("pi-lite-agents-");
   t.after(tmp.cleanup);
-  const outerAgents = join(tmp.dir, ".pi", "agents");
-  const inner = join(tmp.dir, "project");
-  const innerAgents = join(inner, ".pi", "agents");
-  const deep = join(inner, "sub", "deep");
+  const outerAgents = path.join(tmp.dir, ".pi", "agents");
+  const inner = path.join(tmp.dir, "project");
+  const innerAgents = path.join(inner, ".pi", "agents");
+  const deep = path.join(inner, "sub", "deep");
   await writeAgentFile(outerAgents, "outer.md", agentMarkdown({ name: "outer", description: "outer" }));
   await writeAgentFile(innerAgents, "inner.md", agentMarkdown({ name: "inner", description: "inner" }));
-  await mkdir(deep, { recursive: true });
+  await fs.promises.mkdir(deep, { recursive: true });
 
-  const result = discoverAgents(join(tmp.dir, "missing-agent-dir"), deep, "project");
+  const result = discoverAgents(path.join(tmp.dir, "missing-agent-dir"), deep, "project");
   assert.equal(result.projectAgentsDir, innerAgents);
   assert.deepEqual(result.agents.map((a) => a.name), ["inner"]);
 });

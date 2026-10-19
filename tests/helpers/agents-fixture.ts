@@ -6,9 +6,9 @@
  * explicitly to the functions under test (never through the environment).
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export interface TempDir {
   dir: string;
@@ -16,18 +16,18 @@ export interface TempDir {
 }
 
 export async function makeTempDir(prefix: string): Promise<TempDir> {
-  const dir = await mkdtemp(join(tmpdir(), prefix));
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix));
   return {
     dir,
     cleanup: async () => {
-      await rm(dir, { recursive: true, force: true });
+      await fs.promises.rm(dir, { recursive: true, force: true });
     },
   };
 }
 
 export async function writeAgentFile(dir: string, fileName: string, content: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, fileName), content, "utf-8");
+  await fs.promises.mkdir(dir, { recursive: true });
+  await fs.promises.writeFile(path.join(dir, fileName), content, "utf-8");
 }
 
 export interface AgentFileFields {

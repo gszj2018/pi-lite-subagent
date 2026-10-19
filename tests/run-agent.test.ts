@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { test } from "node:test";
 import type { AgentConfig } from "../extension/agents.ts";
 import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.ts";
@@ -222,7 +221,7 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async ()
   assert.notEqual(index, -1);
   const promptPath = args[index + 1]!;
   assert.ok(promptPath.endsWith("prompt-worker.md"));
-  assert.equal(existsSync(promptPath), false, "prompt temp file cleaned up");
+  assert.equal(fs.existsSync(promptPath), false, "prompt temp file cleaned up");
 });
 
 test("runSingleAgent aborts with SIGTERM and reports an aborted run", async (t) => {
@@ -298,8 +297,8 @@ test("runSingleAgent does not leave a pending kill timer when the process closes
 test("getPiInvocation resolves the launch from injected inputs", async (t) => {
   const tmp = await makeTempDir("pi-lite-invocation-");
   t.after(tmp.cleanup);
-  const scriptPath = join(tmp.dir, "pi-entry.mjs");
-  await writeFile(scriptPath, "// stub", "utf-8");
+  const scriptPath = path.join(tmp.dir, "pi-entry.mjs");
+  await fs.promises.writeFile(scriptPath, "// stub", "utf-8");
 
   // Existing script: run through the runtime with the script as the first argument.
   assert.deepEqual(
@@ -309,7 +308,7 @@ test("getPiInvocation resolves the launch from injected inputs", async (t) => {
 
   // Missing script with a generic runtime: fall back to the pi command.
   assert.deepEqual(
-    getPiInvocation({ execPath: "/fake/bin/node", piScriptPath: join(tmp.dir, "missing.mjs"), args: ["a"] }),
+    getPiInvocation({ execPath: "/fake/bin/node", piScriptPath: path.join(tmp.dir, "missing.mjs"), args: ["a"] }),
     { command: "pi", args: ["a"] },
   );
 
@@ -392,8 +391,8 @@ test("runSingleAgent persists subagent sessions under the parent session dir", a
   });
   assert.deepEqual(result.state, { status: "exited", exitCode: 0 });
 
-  const expectedDir = join(tmp.dir, "lite-subagent", "sess-7");
-  assert.ok(existsSync(expectedDir), "the session dir is really created");
+  const expectedDir = path.join(tmp.dir, "lite-subagent", "sess-7");
+  assert.ok(fs.existsSync(expectedDir), "the session dir is really created");
   const args = spawnMock.calls[0].args;
   const index = args.indexOf("--session-dir");
   assert.notEqual(index, -1);
@@ -431,7 +430,7 @@ test("runSingleAgent falls back to --no-session when persistence is not possible
   // The session dir cannot be created (a file blocks the path): degrade.
   const tmp = await makeTempDir("pi-lite-session-");
   t.after(tmp.cleanup);
-  await writeFile(join(tmp.dir, "lite-subagent"), "file, not a directory", "utf-8");
+  await fs.promises.writeFile(path.join(tmp.dir, "lite-subagent"), "file, not a directory", "utf-8");
   const blocked = new MockSpawn([{}]);
   await runSingleAgent({
     deps: makeDeps(blocked),

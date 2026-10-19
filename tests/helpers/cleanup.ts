@@ -2,8 +2,8 @@
  * Cleanup helpers for test-created temp artifacts.
  */
 
-import { rm, rmdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 /**
  * Delete one truncation temp file, then remove its directory non-recursively.
@@ -11,6 +11,6 @@ import { dirname } from "node:path";
  * non-empty directory instead of deleting its contents.
  */
 export async function removeTruncationArtifact(filePath: string): Promise<void> {
-  await rm(filePath, { force: true });
-  await rmdir(dirname(filePath));
+  await fs.promises.rm(filePath, { force: true });
+  await fs.promises.rmdir(path.dirname(filePath));
 }

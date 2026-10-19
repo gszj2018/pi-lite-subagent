@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import * as path from "node:path";
 import { type TestContext, test } from "node:test";
 import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
@@ -15,8 +15,8 @@ async function withTempUserAgents(
 ): Promise<{ agentDir: string }> {
   const tmp = await makeTempDir("pi-lite-tool-agents-");
   t.after(tmp.cleanup);
-  const agentDir = join(tmp.dir, "agent-dir");
-  const userAgents = join(agentDir, "agents");
+  const agentDir = path.join(tmp.dir, "agent-dir");
+  const userAgents = path.join(agentDir, "agents");
   for (const [fileName, content] of Object.entries(agents)) {
     await writeAgentFile(userAgents, fileName, content);
   }
