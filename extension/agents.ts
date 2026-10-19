@@ -4,7 +4,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { CONFIG_DIR_NAME, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -13,6 +14,7 @@ export interface AgentConfig {
   description: string;
   tools?: string[];
   model?: string;
+  thinking?: ThinkingLevel;
   systemPrompt: string;
   source: "user" | "project";
   filePath: string;
@@ -36,7 +38,23 @@ type AgentFrontmatter = {
   description?: unknown;
   tools?: unknown;
   model?: unknown;
+  thinking?: unknown;
 };
+
+const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Normalize a frontmatter `thinking` value to a supported thinking level.
+ *
+ * The field is optional; anything that is not a valid thinking level string
+ * (including non-strings) is ignored and treated as "not set", matching the
+ * tolerant parsing policy used for the other optional fields.
+ */
+export function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
+  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value)
+    ? (value as ThinkingLevel)
+    : undefined;
+}
 
 /**
  * Normalize a frontmatter `tools` value to a list of tool names.
@@ -96,6 +114,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
       description: frontmatter.description,
       tools: parseToolList(frontmatter.tools),
       model: typeof frontmatter.model === "string" ? frontmatter.model : undefined,
+      thinking: parseThinkingLevel(frontmatter.thinking),
       systemPrompt: body,
       source,
       filePath,
@@ -125,8 +144,14 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
   }
 }
 
-export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
-  const userDir = path.join(getAgentDir(), "agents");
+/**
+ * Discover agents from the user and project agent directories.
+ *
+ * The user agent directory is injected (`getAgentDir()` is resolved once in the
+ * factory); user agents live in `<agentDir>/agents`.
+ */
+export function discoverAgents(agentDir: string, cwd: string, scope: AgentScope): AgentDiscoveryResult {
+  const userDir = path.join(agentDir, "agents");
   const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
   const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");

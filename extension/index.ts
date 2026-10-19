@@ -1,6 +1,29 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerSubagentTool } from "./subagent-tool.ts";
+/**
+ * Extension entry point: the default factory only.
+ *
+ * The factory performs the one-time parse of the parent CLI arguments (cached
+ * as InheritedExtensionArgs), resolves the user agent directory, assembles the
+ * real system dependencies, and registers all modules inline. Tests never
+ * import this entry module; they assemble registrations themselves with fake
+ * dependencies.
+ */
 
-export default function setup(pi: ExtensionAPI) {
-  registerSubagentTool(pi);
+import { spawn } from "node:child_process";
+import { type ExtensionAPI, getAgentDir, parseArgs } from "@earendil-works/pi-coding-agent";
+import { registerSubagentTool } from "./subagent-tool.ts";
+import type { SubagentRunnerDeps } from "./types.ts";
+
+export default function setup(pi: ExtensionAPI): void {
+  const parsed = parseArgs(process.argv.slice(2));
+  const deps: SubagentRunnerDeps = {
+    spawn,
+    env: process.env,
+    agentDir: getAgentDir(),
+    piLaunch: { execPath: process.execPath, piScriptPath: process.argv[1] },
+    extensionArgs: {
+      extensions: [...(parsed.extensions ?? [])],
+      noExtensions: parsed.noExtensions ?? false,
+    },
+  };
+  registerSubagentTool(pi, deps);
 }
