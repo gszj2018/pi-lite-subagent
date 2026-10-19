@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ExtensionContext, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "./agents.ts";
+import { buildChildEnv } from "./env-vars.ts";
 import type {
   DispatchDefaults,
   InheritedExtensionArgs,
@@ -96,14 +97,14 @@ export interface BuildPiArgsInput {
   dispatchThinking?: ThinkingLevel;
   /** Path of the temp file holding the agent's system prompt (written by the caller). */
   promptFilePath?: string;
-  /** Extension-loading arguments cached in the factory (plan §3.4). */
+  /** Extension-loading arguments cached in the factory. */
   extensionArgs: InheritedExtensionArgs;
 }
 
 /**
  * Build the `pi` CLI argument list for one subagent run (pure function).
  *
- * Emission order: inherited extension flags first (short forms, plan §3.4),
+ * Emission order: inherited extension flags first (short forms),
  * then `--mode json -p` with the session policy, model/thinking/tools options,
  * the system-prompt file, and the trailing task positional.
  */
@@ -211,6 +212,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
         cwd: ctx.cwd,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
+        env: buildChildEnv(deps.env, agent.name),
       });
       let buffer = "";
 

@@ -18,7 +18,7 @@ export type ProcessEnvLike = Record<string, string | undefined>;
 
 /**
  * Cached parse of the parent process's extension-loading CLI arguments.
- * Parsed once in the factory (plan §3.4) and consumed on every spawn.
+ * Parsed once in the factory and consumed on every spawn.
  */
 export interface InheritedExtensionArgs {
   /** Extension paths in appearance order (from the parent's `--extension`/`-e`). */

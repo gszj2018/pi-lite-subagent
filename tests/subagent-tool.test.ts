@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
+import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
 import { MockSpawn, assistantMessage, messageEndEvent, type MockProcScript } from "./helpers/mock-spawn.ts";
@@ -66,6 +67,10 @@ test("user scope runs on untrusted projects", async (t) => {
   assert.equal(result.isError, undefined);
   assert.equal(spawnMock.calls.length, 1);
   assert.match(result.content[0].text, /ok/);
+
+  const env = spawnMock.calls[0].options.env as Record<string, string | undefined>;
+  assert.equal(env[DEPTH_ENV], "1");
+  assert.equal(env[NAME_ENV], "worker");
 });
 
 test("task count is validated before spawning", async (t) => {

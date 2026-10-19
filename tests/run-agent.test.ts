@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentConfig } from "../extension/agents.ts";
+import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.ts";
 import { buildPiArgs, getPiInvocation, runSingleAgent } from "../extension/run-agent.ts";
 import type { InheritedExtensionArgs, SingleResult, SubagentDetails, SubagentRunnerDeps } from "../extension/types.ts";
 import { makeTempDir } from "./helpers/agents-fixture.ts";
@@ -329,4 +330,25 @@ test("getPiInvocation resolves the launch from injected inputs", async (t) => {
     getPiInvocation({ execPath: "/fake/bin/pi-bin", args: ["a"] }),
     { command: "/fake/bin/pi-bin", args: ["a"] },
   );
+});
+
+test("runSingleAgent spawns with the built child env", async () => {
+  const spawnMock = new MockSpawn([{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
+  const { ctx } = createContext();
+  const result = await runSingleAgent({
+    deps: { ...makeDeps(spawnMock), env: { [PARENT_SESSION_ENV]: "sess-root", PATH: "/bin" } },
+    ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "do work",
+    dispatchDefaults: {},
+    makeDetails,
+  });
+  assert.equal(result.exitCode, 0);
+
+  const env = spawnMock.calls[0].options.env as Record<string, string | undefined>;
+  assert.equal(env[DEPTH_ENV], "1");
+  assert.equal(env[NAME_ENV], "worker");
+  assert.equal(env[PARENT_SESSION_ENV], "sess-root", "the parent session pointer is inherited");
+  assert.equal(env.PATH, "/bin");
 });
