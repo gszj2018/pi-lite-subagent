@@ -26,7 +26,7 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike)
   pi.registerEntryRenderer<ActiveAgentEntryData>(ACTIVE_AGENT_ENTRY_TYPE, (entry, _options, theme) => {
     const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
     const name = entry.data?.name ?? "unknown";
-    box.addChild(new Text(theme.bold(theme.fg("accent", `SUBAGENT SESSION · ${name}`)), 0, 0));
+    box.addChild(new Text(`${theme.fg("accent", `${theme.bold("Subagent session")} (inspection only) ·`)} ${name}`, 0, 0));
     return box;
   });
 
@@ -51,7 +51,7 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike)
   // Inspection-only: prompts in a session carrying the marker are blocked.
   pi.on("input", (_event, ctx) => {
     if (!hasActiveAgentEntry) return undefined;
-    ctx.ui.notify("This is a subagent session (inspection only); prompts cannot be sent here.", "warning");
+    ctx.ui.notify("This is a subagent session (inspection only); prompts cannot be sent here.", "error");
     const result: InputEventResult = { action: "handled" };
     return result;
   });

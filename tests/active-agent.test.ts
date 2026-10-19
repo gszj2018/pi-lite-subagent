@@ -25,7 +25,7 @@ test("session_start scanning sets the marker explicitly on every session", async
   const [blocked] = await pi.emitLifecycle("input", hitCtx.ctx, { text: "hi", source: "interactive" });
   assert.deepEqual(blocked, { action: "handled" }, "marker sessions block prompts");
   assert.equal(hitCtx.notifications.length, 1);
-  assert.equal(hitCtx.notifications[0].type, "warning");
+  assert.equal(hitCtx.notifications[0].type, "error");
 
   // Miss: an entry-less session explicitly clears the flag.
   await pi.emitLifecycle("session_start", createContext({ entries: [{ type: "message" }] }).ctx);
@@ -88,7 +88,7 @@ test("input passes before the marker exists and is blocked afterwards", async ()
   const [after] = await pi.emitLifecycle("input", ctx, { text: "hi", source: "interactive" });
   assert.deepEqual(after, { action: "handled" });
   assert.equal(notifications.length, 1);
-  assert.equal(notifications[0].type, "warning");
+  assert.equal(notifications[0].type, "error");
 });
 
 test("the entry renderer shows the agent name", () => {
@@ -99,6 +99,6 @@ test("the entry renderer shows the agent name", () => {
   assert.ok(renderer, "the renderer is registered unconditionally");
   const component = renderer(markerEntry, { expanded: false }, mockTheme()) as { render: (width: number) => string[] };
   const text = component.render(40).join("\n");
-  assert.match(text, /SUBAGENT SESSION/);
+  assert.match(text, /Subagent session \(inspection only\)/);
   assert.match(text, /worker/);
 });
