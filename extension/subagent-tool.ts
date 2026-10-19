@@ -17,21 +17,11 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import {
-  CONFIG_DIR_NAME,
-  type ExtensionAPI,
-  getMarkdownTheme,
-} from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentScope, discoverAgents } from "./agents.ts";
-import {
-  emptyUsageStats,
-  getFinalOutput,
-  getResultOutput,
-  isFailedResult,
-  runSingleAgent,
-} from "./run-agent.ts";
+import { emptyUsageStats, getFinalOutput, getResultOutput, isFailedResult, runSingleAgent } from "./run-agent.ts";
 import type { DispatchDefaults, OnUpdateCallback, SingleResult, SubagentDetails, SubagentRunnerDeps } from "./types.ts";
 
 const MAX_TASKS = 8;
