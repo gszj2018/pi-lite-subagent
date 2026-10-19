@@ -4,6 +4,7 @@ import { type TestContext, test } from "node:test";
 import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
+import { removeTruncationArtifact } from "./helpers/cleanup.ts";
 import { MockSpawn, assistantMessage, messageEndEvent, type MockProcScript } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext, flushPromises } from "./helpers/mocks.ts";
 
@@ -198,4 +199,36 @@ test("a single task completes in either mode", async (t) => {
     assert.equal(result.details.results.length, 1, mode);
     assert.equal(result.details.mode, mode);
   }
+});
+
+const HINT_PATH = /\[Output truncated: [^\]]*Full output saved to: (.+?)\]/;
+
+test("parallel summaries and chain error output carry the truncation hint", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
+  const { ctx } = createContext({ trusted: true });
+  const bigText = "y".repeat(60 * 1024); // over the host default cap
+
+  const parallel = setupTool(agentDir, [{ stdoutLines: [messageEndEvent(assistantMessage(bigText))] }]);
+  const parallelResult = await parallel.tool.execute(
+    "c1",
+    { tasks: [{ agent: "worker", task: "t" }] },
+    undefined,
+    undefined,
+    ctx,
+  );
+  const parallelHint = parallelResult.content[0].text.match(HINT_PATH);
+  assert.ok(parallelHint, "parallel summary carries the truncation hint");
+  t.after(() => removeTruncationArtifact(parallelHint[1]));
+
+  const chain = setupTool(agentDir, [{ stderr: bigText, exitCode: 1 }]);
+  const chainResult = await chain.tool.execute(
+    "c2",
+    { mode: "chain", tasks: [{ agent: "worker", task: "t" }] },
+    undefined,
+    undefined,
+    ctx,
+  );
+  const chainHint = chainResult.content[0].text.match(HINT_PATH);
+  assert.ok(chainHint, "chain stop message carries the truncation hint");
+  t.after(() => removeTruncationArtifact(chainHint[1]));
 });

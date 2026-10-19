@@ -87,6 +87,38 @@ export function getPiInvocation(input: PiInvocationInput): { command: string; ar
   return { command: "pi", args };
 }
 
+/** Where a subagent run persists its session: a dedicated directory, or none. */
+export type SessionConfig = { mode: "persist"; dir: string } | { mode: "no-session" };
+
+/** Whether a session id is safe to use as a path component and CLI argument. */
+export function isPathSafeSessionId(value: string): boolean {
+  return /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(value);
+}
+
+function tryEnsureDir(dir: string): boolean {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide where the subagent's session files go: a dedicated directory under the
+ * parent session dir, or no persistence at all (missing dir, unsafe session id,
+ * or a directory that cannot be created).
+ */
+function resolveSessionConfig(ctx: ExtensionContext): SessionConfig {
+  const sessionDir = ctx.sessionManager.getSessionDir();
+  const sessionId = ctx.sessionManager.getSessionId();
+  if (sessionDir !== "" && isPathSafeSessionId(sessionId)) {
+    const dir = path.join(sessionDir, "lite-subagent", sessionId);
+    if (tryEnsureDir(dir)) return { mode: "persist", dir };
+  }
+  return { mode: "no-session" };
+}
+
 export interface BuildPiArgsInput {
   /** Agent definition: tools/model/thinking configuration source. */
   agent: AgentConfig;
@@ -98,6 +130,8 @@ export interface BuildPiArgsInput {
   dispatchThinking?: ThinkingLevel;
   /** Path of the temp file holding the agent's system prompt (written by the caller). */
   promptFilePath?: string;
+  /** Session persistence policy for the subagent process (defaults to no-session). */
+  session?: SessionConfig;
   /** Extension-loading arguments cached in the factory. */
   extensionArgs: InheritedExtensionArgs;
 }
@@ -115,7 +149,11 @@ export function buildPiArgs(input: BuildPiArgsInput): string[] {
   if (extensionArgs.noExtensions) args.push("-ne");
   for (const extension of extensionArgs.extensions) args.push("-e", extension);
 
-  args.push("--mode", "json", "-p", "--no-session");
+  args.push("--mode", "json", "-p");
+
+  const session = input.session ?? { mode: "no-session" };
+  if (session.mode === "persist") args.push("--session-dir", session.dir);
+  else args.push("--no-session");
 
   const model = input.agent.model ?? input.dispatchModel;
   if (model) args.push("--model", model);
@@ -199,6 +237,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
     const args = buildPiArgs({
       agent,
       task,
+      session: resolveSessionConfig(ctx),
       dispatchModel: dispatchDefaults.model,
       dispatchThinking: dispatchDefaults.thinkingLevel,
       promptFilePath: tmpPromptPath ?? undefined,

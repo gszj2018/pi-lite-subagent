@@ -22,12 +22,12 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentScope, discoverAgents } from "./agents.ts";
 import { emptyUsageStats, getFinalOutput, getResultOutput, isFailedResult, runSingleAgent } from "./run-agent.ts";
+import { truncateSubagentOutput } from "./truncation.ts";
 import type { DispatchDefaults, OnUpdateCallback, SingleResult, SubagentDetails, SubagentRunnerDeps } from "./types.ts";
 
 const MAX_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
-const PER_TASK_OUTPUT_CAP = 50 * 1024;
 
 type ExecutionMode = "parallel" | "chain";
 
@@ -181,17 +181,6 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
   return results;
 }
 
-function truncateParallelOutput(output: string): string {
-  const byteLength = Buffer.byteLength(output, "utf8");
-  if (byteLength <= PER_TASK_OUTPUT_CAP) return output;
-
-  let truncated = output.slice(0, PER_TASK_OUTPUT_CAP);
-  while (Buffer.byteLength(truncated, "utf8") > PER_TASK_OUTPUT_CAP) {
-    truncated = truncated.slice(0, -1);
-  }
-  return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
-}
-
 const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),
   task: Type.String({
@@ -311,10 +300,11 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
           results.push(result);
 
           if (isFailedResult(result)) {
+            const errorMsg = await truncateSubagentOutput(getResultOutput(result));
             return {
               content: [{
                 type: "text",
-                text: `Chain stopped at step ${i + 1} (${step.agent}): ${getResultOutput(result)}`
+                text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}`
               }],
               details: makeDetails(results),
               isError: true,
@@ -323,7 +313,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
           previousOutput = getFinalOutput(result.messages);
         }
         return {
-          content: [{ type: "text", text: getFinalOutput(results[results.length - 1]!.messages) || "(no output)" }],
+          content: [{ type: "text", text: await truncateSubagentOutput(getFinalOutput(results[results.length - 1]!.messages) || "(no output)") }],
           details: makeDetails(results),
         };
       }
@@ -374,13 +364,15 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       });
 
       const successCount = results.filter((r) => !isFailedResult(r)).length;
-      const summaries = results.map((r) => {
-        const output = truncateParallelOutput(getResultOutput(r));
-        const status = isFailedResult(r)
-          ? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
-          : "completed";
-        return `### [${r.agent}] ${status}\n\n${output}`;
-      });
+      const summaries = await Promise.all(
+        results.map(async (r) => {
+          const output = await truncateSubagentOutput(getResultOutput(r));
+          const status = isFailedResult(r)
+            ? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
+            : "completed";
+          return `### [${r.agent}] ${status}\n\n${output}`;
+        }),
+      );
       return {
         content: [
           {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentConfig } from "../extension/agents.ts";
 import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.ts";
-import { buildPiArgs, getPiInvocation, runSingleAgent } from "../extension/run-agent.ts";
+import { buildPiArgs, getPiInvocation, isPathSafeSessionId, runSingleAgent } from "../extension/run-agent.ts";
 import type { InheritedExtensionArgs, SingleResult, SubagentDetails, SubagentRunnerDeps } from "../extension/types.ts";
 import { makeTempDir } from "./helpers/agents-fixture.ts";
 import {
@@ -351,4 +351,96 @@ test("runSingleAgent spawns with the built child env", async () => {
   assert.equal(env[NAME_ENV], "worker");
   assert.equal(env[PARENT_SESSION_ENV], "sess-root", "the parent session pointer is inherited");
   assert.equal(env.PATH, "/bin");
+});
+
+test("buildPiArgs emits the session policy for persist and no-session forms", () => {
+  assert.deepEqual(
+    buildPiArgs({
+      agent: makeAgent(),
+      task: "t",
+      session: { mode: "persist", dir: "/w/.pi/sessions/lite-subagent/s1" },
+      extensionArgs: noExtensionArgs,
+    }),
+    ["--mode", "json", "-p", "--session-dir", "/w/.pi/sessions/lite-subagent/s1", "Task: t"],
+  );
+  assert.deepEqual(
+    buildPiArgs({ agent: makeAgent(), task: "t", session: { mode: "no-session" }, extensionArgs: noExtensionArgs }),
+    ["--mode", "json", "-p", "--no-session", "Task: t"],
+  );
+});
+
+test("isPathSafeSessionId accepts only simple path-safe ids", () => {
+  for (const id of ["a", "abc", "A1", "0", "sess-1_2.3x"]) assert.equal(isPathSafeSessionId(id), true, id);
+  for (const id of ["", " a", "a ", "/x", "a/b", "a\\b", "a b", "..", ".abc", "abc.", "-a", "a-", "a$b"]) {
+    assert.equal(isPathSafeSessionId(id), false, JSON.stringify(id));
+  }
+});
+
+test("runSingleAgent persists subagent sessions under the parent session dir", async (t) => {
+  const tmp = await makeTempDir("pi-lite-session-");
+  t.after(tmp.cleanup);
+  const spawnMock = new MockSpawn([{}]);
+  const { ctx } = createContext({ sessionDir: tmp.dir, sessionId: "sess-7" });
+  const result = await runSingleAgent({
+    deps: makeDeps(spawnMock),
+    ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "t",
+    dispatchDefaults: {},
+    makeDetails,
+  });
+  assert.deepEqual(result.state, { status: "exited", exitCode: 0 });
+
+  const expectedDir = join(tmp.dir, "lite-subagent", "sess-7");
+  assert.ok(existsSync(expectedDir), "the session dir is really created");
+  const args = spawnMock.calls[0].args;
+  const index = args.indexOf("--session-dir");
+  assert.notEqual(index, -1);
+  assert.equal(args[index + 1], expectedDir);
+  assert.equal(args.includes("--no-session"), false);
+});
+
+test("runSingleAgent falls back to --no-session when persistence is not possible", async (t) => {
+  // No session dir configured (no persistence).
+  const noDir = new MockSpawn([{}]);
+  await runSingleAgent({
+    deps: makeDeps(noDir),
+    ctx: createContext().ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "t",
+    dispatchDefaults: {},
+    makeDetails,
+  });
+  assert.ok(noDir.calls[0].args.includes("--no-session"), "no session dir");
+
+  // Unsafe session id: never touches the file system.
+  const unsafe = new MockSpawn([{}]);
+  await runSingleAgent({
+    deps: makeDeps(unsafe),
+    ctx: createContext({ sessionDir: "/nonexistent-root", sessionId: "../evil" }).ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "t",
+    dispatchDefaults: {},
+    makeDetails,
+  });
+  assert.ok(unsafe.calls[0].args.includes("--no-session"), "unsafe session id");
+
+  // The session dir cannot be created (a file blocks the path): degrade.
+  const tmp = await makeTempDir("pi-lite-session-");
+  t.after(tmp.cleanup);
+  await writeFile(join(tmp.dir, "lite-subagent"), "file, not a directory", "utf-8");
+  const blocked = new MockSpawn([{}]);
+  await runSingleAgent({
+    deps: makeDeps(blocked),
+    ctx: createContext({ sessionDir: tmp.dir, sessionId: "s1" }).ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "t",
+    dispatchDefaults: {},
+    makeDetails,
+  });
+  assert.ok(blocked.calls[0].args.includes("--no-session"), "blocked session dir");
 });
