@@ -232,7 +232,7 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async (t
   assert.equal(fs.existsSync(promptPath), false, "prompt temp file cleaned up");
 });
 
-test("runSingleAgent aborts with SIGTERM and reports an aborted run", async (t) => {
+test("runSingleAgent aborts with SIGTERM and clears the escalation timer on close", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { agentDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true }]);
@@ -251,6 +251,10 @@ test("runSingleAgent aborts with SIGTERM and reports an aborted run", async (t) 
   await flushPromises();
   controller.abort();
   await assert.rejects(promise, /Subagent was aborted/);
+  assert.deepEqual(spawnMock.procs[0].kills, ["SIGTERM"]);
+
+  // The escalation timer was cleared on close: ticking past it must not kill again.
+  t.mock.timers.tick(60_000);
   assert.deepEqual(spawnMock.procs[0].kills, ["SIGTERM"]);
 });
 
@@ -281,29 +285,6 @@ test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) =>
   await assert.rejects(promise, /Subagent was aborted/);
 });
 
-test("runSingleAgent does not leave a pending kill timer when the process closes promptly", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir } = await withTempUserAgents(t);
-  const spawnMock = new MockSpawn([{ hold: true }]);
-  const { ctx } = createContext();
-  const controller = new AbortController();
-  const promise = runSingleAgent({
-    deps: makeDeps(spawnMock, agentDir),
-    ctx,
-    agents: [makeAgent()],
-    agentName: "worker",
-    task: "t",
-    dispatchDefaults: {},
-    signal: controller.signal,
-    makeDetails,
-  });
-  await flushPromises();
-  controller.abort();
-  await assert.rejects(promise, /Subagent was aborted/);
-  // The escalation timer was cleared on close: ticking past it must not kill again.
-  t.mock.timers.tick(60_000);
-  assert.deepEqual(spawnMock.procs[0].kills, ["SIGTERM"]);
-});
 
 test("getPiInvocation resolves the launch from injected inputs", async (t) => {
   const tmp = await makeTempDir("pi-lite-invocation-");
