@@ -383,7 +383,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
       };
     },
 
-    renderCall(args, theme, _context) {
+    renderCall(args, theme, { expanded }) {
       const scope: AgentScope = args.agentScope ?? "user";
       const mode: ExecutionMode = args.mode ?? "parallel";
       const tasks: { agent: string; task: string }[] = Array.isArray(args.tasks) ? args.tasks : [];
@@ -392,11 +392,10 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
           theme.fg("toolTitle", theme.bold("subagent ")) +
           theme.fg("accent", `chain (${tasks.length} steps)`) +
           theme.fg("muted", ` [${scope}]`);
-        for (let i = 0; i < Math.min(tasks.length, 3); i++) {
+        for (let i = 0; i < (expanded ? tasks.length : Math.min(tasks.length, 3)); i++) {
           const step = tasks[i];
-          // Clean up {previous} placeholder for display
-          const cleanTask = step.task.replace(/\{previous\}/g, "").trim();
-          const preview = cleanTask.length > 40 ? `${cleanTask.slice(0, 40)}...` : cleanTask;
+          const displayTask = expanded ? step.task : step.task.replace(/\{previous\}/g, "").trim();
+          const preview = !expanded && displayTask.length > 40 ? `${displayTask.slice(0, 40)}...` : displayTask;
           text +=
             "\n  " +
             theme.fg("muted", `${i + 1}.`) +
@@ -404,18 +403,18 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
             theme.fg("accent", step.agent) +
             theme.fg("dim", ` ${preview}`);
         }
-        if (tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${tasks.length - 3} more`)}`;
+        if (!expanded && tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${tasks.length - 3} more`)}`;
         return new Text(text, 0, 0);
       }
       let text =
         theme.fg("toolTitle", theme.bold("subagent ")) +
         theme.fg("accent", `parallel (${tasks.length} tasks)`) +
         theme.fg("muted", ` [${scope}]`);
-      for (const t of tasks.slice(0, 3)) {
-        const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
+      for (const t of expanded ? tasks : tasks.slice(0, 3)) {
+        const preview = !expanded && t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
         text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
       }
-      if (tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${tasks.length - 3} more`)}`;
+      if (!expanded && tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${tasks.length - 3} more`)}`;
       return new Text(text, 0, 0);
     },
 
@@ -472,22 +471,20 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
           ? `${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", r.agent)} ${resultIcon(r)}`
           : `${theme.fg("muted", "─── ") + theme.fg("accent", r.agent)} ${resultIcon(r)}`;
 
-      // Expanded block for one result: header, task, tool calls, final output, usage.
+      // Expanded block for one result: header, task, ordered assistant text/tool calls, usage.
       const addExpandedResult = (container: Container, r: SingleResult) => {
         container.addChild(new Spacer(1));
         container.addChild(new Text(sectionHeader(r), 0, 0));
         container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
         for (const item of getDisplayItems(r.messages)) {
-          if (item.type === "toolCall") {
+          if (item.type === "text") {
+            container.addChild(new Spacer(1));
+            container.addChild(new Markdown(item.text, 0, 0, mdTheme));
+          } else {
             container.addChild(
               new Text(theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)), 0, 0),
             );
           }
-        }
-        const finalOutput = getFinalOutput(r.messages);
-        if (finalOutput) {
-          container.addChild(new Spacer(1));
-          container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
         }
         const usage = formatUsageStats(r.usage, r.model);
         if (usage) container.addChild(new Text(theme.fg("dim", usage), 0, 0));
