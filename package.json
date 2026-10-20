@@ -6,11 +6,24 @@
     "pi-package",
     "pi",
     "pi-coding-agent",
-    "extension"
+    "extension",
+    "subagent"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gszj2018/pi-lite-subagent.git"
+  },
   "license": "MIT",
   "author": "gszj2018",
   "type": "module",
+  "files": [
+    "extension",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit"
