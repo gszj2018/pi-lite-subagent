@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ACTIVE_AGENT_ENTRY_TYPE, registerActiveAgentMarker } from "../extension/active-agent.ts";
-import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
+import { DEPTH_ENV, NAME_ENV, RETURN_STACK_ENV } from "../extension/env-vars.ts";
 import type { ProcessEnvLike } from "../extension/types.ts";
 import { MockPi, createContext } from "./helpers/mocks.ts";
 
@@ -89,6 +89,23 @@ test("input passes before the marker exists and is blocked afterwards", async ()
   assert.deepEqual(after, { action: "handled" });
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].type, "error");
+});
+
+test("any navigation env presence blocks input without decoding state or checking session identity", async () => {
+  const pi = new MockPi();
+  const env: ProcessEnvLike = {};
+  registerActiveAgentMarker(pi.api, env);
+  const { ctx } = createContext();
+  await pi.emitLifecycle("session_start", ctx);
+  ctx.sessionManager.getSessionId = () => { throw new Error("input must not check identity"); };
+  ctx.sessionManager.getSessionFile = () => { throw new Error("input must not read the session file"); };
+  for (const raw of ["", "not-json", "{}", '{"version":1,"frames":[],"pending":{}}']) {
+    env[RETURN_STACK_ENV] = raw;
+    assert.deepEqual(await pi.emitLifecycle("input", ctx, { text: "blocked" }), [{ action: "handled" }]);
+    assert.equal(env[RETURN_STACK_ENV], raw, "the input guard never parses, clears or modifies navigation state");
+  }
+  delete env[RETURN_STACK_ENV];
+  assert.deepEqual(await pi.emitLifecycle("input", ctx, { text: "allowed" }), [undefined]);
 });
 
 test("the entry renderer shows the agent name", () => {

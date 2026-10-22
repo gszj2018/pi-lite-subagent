@@ -7,6 +7,7 @@ import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerSubagentCommands } from "../extension/subagent-commands.ts";
+import { registerSessionNavigation } from "../extension/session-navigation.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
@@ -26,6 +27,7 @@ async function setup(t: TestContext, branch: unknown[], mode: "tui" | "rpc" | "j
   });
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
+  registerSessionNavigation(pi.api, {});
   registerSubagentCommands(pi.api, { agentDir });
   t.after(async () => {
     await pi.emitLifecycle("session_shutdown", ctx);

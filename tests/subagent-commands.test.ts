@@ -6,6 +6,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
 import { registerSubagentCommands } from "../extension/subagent-commands.ts";
+import { registerSessionNavigation } from "../extension/session-navigation.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
@@ -24,6 +25,7 @@ async function fixture(t: TestContext, options: ContextOptions = {}) {
   const mock = createContext({ cwd: project, ...options });
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
+  registerSessionNavigation(pi.api, {});
   registerSubagentCommands(pi.api, { agentDir });
   t.after(() => {
     pi.events.emit("permissions:ui_prompt", {});
@@ -60,7 +62,9 @@ test("list-subagents keeps same-name user and project agents, grouped in stable 
   }
   assert.deepEqual(names.map((name) => list.indexOf(name)), names.map((name) => list.indexOf(name)).sort((a, b) => a - b));
   assert.doesNotMatch(list, /invalid \(project\)/, "discovery's invalid-definition filtering is preserved");
-  assert.deepEqual([...f.pi.commands.keys()], ["list-subagents", "view-subagents"], "session navigation stays deferred");
+  assert.deepEqual([...f.pi.commands.keys()].sort(), [
+    "list-subagents", "return-to-parent-session", "switch-to-subagent-session", "view-subagents",
+  ]);
   f.press("\x1b");
   await opening;
 });
@@ -155,7 +159,7 @@ test("non-TUI modes report an error without opening a browser or subscribing int
     assert.equal(f.ui.interactions.length, 0);
     assert.deepEqual(f.notifications, [{ message: "list-subagents requires interactive TUI mode.", type: "error" }]);
     assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-    assert.equal(f.pi.count("session_shutdown"), 1, "only the session-local history observer is registered");
+    assert.equal(f.pi.count("session_shutdown"), 2, "only history and navigation lifecycle observers remain");
   }
 });
 
@@ -186,7 +190,7 @@ test("the command rejects overlapping browsers and releases its guard after perm
   f.press("\x03");
   await second;
   assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-  assert.equal(f.pi.count("session_shutdown"), 1, "closing dialogs leaves only the history lifecycle observer");
+  assert.equal(f.pi.count("session_shutdown"), 2, "closing dialogs leaves history and navigation observers");
 });
 
 test("discovery errors are caught at the command boundary and do not leave a stale interaction guard", async (t) => {

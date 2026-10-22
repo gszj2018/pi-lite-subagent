@@ -12,6 +12,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ExtensionContext, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "./agents.ts";
 import { buildChildEnv } from "./env-vars.ts";
+import { subagentSessionDir } from "./session-paths.ts";
 import type {
   DispatchDefaults,
   InheritedExtensionArgs,
@@ -22,6 +23,8 @@ import type {
   SubagentRunnerDeps,
   UsageStats,
 } from "./types.ts";
+
+export { isPathSafeSessionId } from "./session-paths.ts";
 
 export function emptyUsageStats(): UsageStats {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
@@ -90,11 +93,6 @@ export function getPiInvocation(input: PiInvocationInput): { command: string; ar
 /** Where a subagent run persists its session: a dedicated directory, or none. */
 export type SessionConfig = { mode: "persist"; dir: string } | { mode: "no-session" };
 
-/** Whether a session id is safe to use as a path component and CLI argument. */
-export function isPathSafeSessionId(value: string): boolean {
-  return /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(value);
-}
-
 function tryEnsureDir(dir: string): boolean {
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -112,10 +110,8 @@ function tryEnsureDir(dir: string): boolean {
 function resolveSessionConfig(ctx: ExtensionContext): SessionConfig {
   const sessionDir = ctx.sessionManager.getSessionDir();
   const sessionId = ctx.sessionManager.getSessionId();
-  if (sessionDir !== "" && isPathSafeSessionId(sessionId)) {
-    const dir = path.join(sessionDir, "lite-subagent", sessionId);
-    if (tryEnsureDir(dir)) return { mode: "persist", dir };
-  }
+  const dir = subagentSessionDir(sessionDir, sessionId);
+  if (dir && tryEnsureDir(dir)) return { mode: "persist", dir };
   return { mode: "no-session" };
 }
 

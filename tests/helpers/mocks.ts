@@ -83,6 +83,7 @@ export class MockPi {
 export interface ContextOptions {
   sessionId?: string;
   sessionDir?: string;
+  sessionFile?: string;
   entries?: unknown[];
   branch?: unknown[];
   cwd?: string;
@@ -109,6 +110,7 @@ export function createContext(options: ContextOptions = {}): MockContext {
     sessionManager: {
       getSessionId: () => options.sessionId ?? "session-1",
       getSessionDir: () => options.sessionDir ?? "",
+      getSessionFile: () => options.sessionFile,
       getEntries: () => options.entries ?? [],
       getBranch: () => options.branch ?? options.entries ?? [],
     },

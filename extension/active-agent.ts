@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import { getSubagentName, isSubagentSession } from "./env-vars.ts";
+import { getSubagentName, isSubagentSession, RETURN_STACK_ENV } from "./env-vars.ts";
 import type { ProcessEnvLike } from "./types.ts";
 
 /** Custom entry type marking a session as a subagent session. */
@@ -48,9 +48,9 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike)
     hasActiveAgentEntry = true;
   });
 
-  // Inspection-only: prompts in a session carrying the marker are blocked.
+  // Any navigation env presence protects incomplete sessions, including pending or malformed state.
   pi.on("input", (_event, ctx) => {
-    if (!hasActiveAgentEntry) return undefined;
+    if (!hasActiveAgentEntry && env[RETURN_STACK_ENV] === undefined) return undefined;
     ctx.ui.notify("This is a subagent session (inspection only); prompts cannot be sent here.", "error");
     const result: InputEventResult = { action: "handled" };
     return result;

@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { type ExtensionAPI, getAgentDir, parseArgs } from "@earendil-works/pi-coding-agent";
 import { registerActiveAgentMarker } from "./active-agent.ts";
 import { isSubagentToolAllowed, registerSessionEnv } from "./env-vars.ts";
+import { registerSessionNavigation } from "./session-navigation.ts";
 import { registerSubagentCommands } from "./subagent-commands.ts";
 import { registerSubagentTool } from "./subagent-tool.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
@@ -30,6 +31,7 @@ export default function setup(pi: ExtensionAPI): void {
     },
   };
   registerSessionEnv(pi, deps.env);
+  registerSessionNavigation(pi, deps.env);
   registerActiveAgentMarker(pi, deps.env);
   registerSubagentCommands(pi, deps);
   if (isSubagentToolAllowed(deps.env)) {
