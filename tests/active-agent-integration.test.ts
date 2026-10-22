@@ -15,7 +15,7 @@ import {
 } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { registerSessionNavigation } from "../extension/session-navigation.ts";
-import type { ProcessEnvLike } from "../extension/types.ts";
+import type { NavigationState, ProcessEnvLike } from "../extension/types.ts";
 import { withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { MockSpawn } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext } from "./helpers/mocks.ts";
@@ -24,9 +24,10 @@ import { MockPi, createContext } from "./helpers/mocks.ts";
 async function setupExtension(t: TestContext, pi: MockPi, env: ProcessEnvLike) {
   const spawnMock = new MockSpawn([]);
   const { agentDir, projectDir } = await withTempUserAgents(t);
+  const navigationState: NavigationState = { frames: [] };
   registerSessionEnv(pi.api, env);
-  registerSessionNavigation(pi.api, env);
-  registerActiveAgentMarker(pi.api, env);
+  registerSessionNavigation(pi.api, navigationState);
+  registerActiveAgentMarker(pi.api, env, navigationState);
   if (isSubagentToolAllowed(env)) {
     registerSubagentTool(pi.api, {
       spawn: spawnMock.spawn,

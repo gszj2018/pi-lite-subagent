@@ -5,7 +5,6 @@ import * as path from "node:path";
 import type { TestContext } from "node:test";
 import { subagentSessionDir } from "../../extension/session-paths.ts";
 import { makeTempDir } from "./agents-fixture.ts";
-import type { SessionIdentity } from "../../extension/types.ts";
 
 export const SESSION_TIME = "2026-10-20T10:00:00.000Z";
 
@@ -31,7 +30,7 @@ export async function withTempSessions(t: TestContext) {
   const sessionDir = path.join(agentDir, "sessions");
   await fs.mkdir(sessionDir, { recursive: true });
   await fs.mkdir(projectDir);
-  const parent: SessionIdentity = { file: path.join(sessionDir, "parent.jsonl"), id: "parent" };
+  const parent = { file: path.join(sessionDir, "parent.jsonl"), id: "parent" };
   await fs.writeFile(parent.file, sessionText(parent.id, projectDir));
   const child = async (owner = parent, id = "child", options: Parameters<typeof sessionText>[2] = {}) => {
     const directory = subagentSessionDir(path.dirname(owner.file), owner.id)!;

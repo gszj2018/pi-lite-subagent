@@ -9,7 +9,7 @@ import { BrowserUI } from "./helpers/browser-ui.ts";
 import { createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 
 const choices = (count = 16): SubagentSession[] => Array.from({ length: count }, (_, index) => ({
-  file: `file-${index}`, fileName: `session-${index}.jsonl`, agent: "worker", created: index, degraded: false,
+  file: `file-${index}`, fileName: `session-${index}.jsonl`, agent: "worker", created: index,
 }));
 
 test("inline selector has bounded single-line choices, native information, paging and path-valued confirmation", () => {

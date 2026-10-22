@@ -24,7 +24,7 @@ async function setup(t: TestContext, branch: unknown[], mode: "tui" | "rpc" | "j
   });
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
-  registerSessionNavigation(pi.api, {});
+  registerSessionNavigation(pi.api, { frames: [] });
   registerSubagentCommands(pi.api, { agentDir });
   t.after(async () => {
     await pi.emitLifecycle("session_shutdown", ctx);

@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { test } from "node:test";
-import { isPathSafeSessionId, subagentSessionDir } from "../extension/session-paths.ts";
-import { MAX_SESSION_METADATA_BYTES, readSessionIdentity, scanSubagentSessions,
-  SESSION_METADATA_CONCURRENCY } from "../extension/subagent-sessions.ts";
+import { isPathSafeSessionId, sameSessionFile, subagentSessionDir } from "../extension/session-paths.ts";
+import { MAX_SESSION_METADATA_BYTES, scanSubagentSessions, SESSION_METADATA_CONCURRENCY,
+  validateSessionFile } from "../extension/subagent-sessions.ts";
 import { sessionText, SESSION_TIME, withTempSessions } from "./helpers/sessions-fixture.ts";
 
 test("shared session paths preserve the runner layout and reject unsafe ids without creating directories", () => {
@@ -17,6 +17,10 @@ test("shared session paths preserve the runner layout and reject unsafe ids with
   }
   assert.equal(subagentSessionDir("sessions", "a_b.c-1"), path.join("sessions", "lite-subagent", "a_b.c-1"));
   assert.equal(SESSION_METADATA_CONCURRENCY, 4);
+  const file = path.resolve("virtual-sessions", "parent.jsonl");
+  assert.equal(sameSessionFile(file, `${path.dirname(file)}${path.sep}.${path.sep}parent.jsonl`), true);
+  assert.equal(sameSessionFile(file, path.resolve("virtual-sessions", "child.jsonl")), false);
+  assert.equal(sameSessionFile(file, file.toUpperCase()), path.sep === "\\", "comparison follows native path rules");
 });
 
 test("discovery reads only ordinary direct jsonl files and sorts by creation metadata, not modification time", async (t) => {
@@ -30,12 +34,10 @@ test("discovery reads only ordinary direct jsonl files and sorts by creation met
   await fs.mkdir(path.join(directory, "nested.jsonl"));
   await fs.writeFile(path.join(directory, "nested.jsonl", "hidden.jsonl"), sessionText("hidden", f.projectDir));
   const before = await fs.readFile(older.file);
-  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
   assert.deepEqual(scan.sessions.map((session) => [session.header?.id, session.agent]), [
     ["newer", "reviewer"], ["older", "worker"],
   ]);
-  assert.equal(scan.skipped, 1);
-  assert.equal(scan.degraded, 0);
   assert.deepEqual(await fs.readFile(older.file), before, "discovery does not rewrite sessions");
 });
 
@@ -51,24 +53,23 @@ test("malformed, missing-marker, empty and oversized files retain bounded metada
   await fs.writeFile(path.join(directory, "empty.jsonl"), "");
   const fallback = "2026-10-21T01-02-03-004Z_invalid.jsonl";
   await fs.writeFile(path.join(directory, fallback), "{broken header\n");
-  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
   assert.equal(scan.sessions.length, 5);
-  assert.equal(scan.degraded, 5);
   assert.ok(scan.sessions.every((session) => session.agent === "unknown"));
   assert.equal(scan.sessions.find((session) => session.fileName === fallback)?.created,
     Date.parse("2026-10-21T01:02:03.004Z"));
   assert.equal(scan.sessions.find((session) => session.fileName === "empty.jsonl")?.header, undefined);
-  assert.deepEqual(await readSessionIdentity(large.file, scan.directory), large, "metadata size is not an open limit");
-  await assert.rejects(readSessionIdentity(path.join(directory, "empty.jsonl")), /header/);
+  assert.equal(await validateSessionFile(large.file), large.file, "metadata size is not an open limit");
+  await assert.rejects(validateSessionFile(path.join(directory, "empty.jsonl")), /header/);
 });
 
 test("unsafe persistence and absent child directories fail without creating anything", async (t) => {
   const f = await withTempSessions(t);
-  await assert.rejects(scanSubagentSessions("", f.parent), /persistent/);
-  await assert.rejects(scanSubagentSessions(f.sessionDir, { ...f.parent, id: "../unsafe" }), /persistent/);
-  await assert.rejects(scanSubagentSessions(f.sessionDir, f.parent));
+  await assert.rejects(scanSubagentSessions("", f.parent.id, f.parent.file), /persistent/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, "../unsafe", f.parent.file), /persistent/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file));
   await assert.rejects(fs.stat(path.join(f.sessionDir, "lite-subagent")), { code: "ENOENT" });
-  await assert.rejects(scanSubagentSessions(f.sessionDir, { ...f.parent, id: "wrong-id" }), /different session id/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, "absent-storage-id", f.parent.file), { code: "ENOENT" });
 });
 
 test("symbolic-link files are excluded and cannot be selected directly", async (t) => {
@@ -81,30 +82,42 @@ test("symbolic-link files are excluded and cannot be selected directly", async (
     if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("File symlinks require platform privileges."); return; }
     throw error;
   }
-  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
   assert.deepEqual(scan.sessions.map((session) => session.header?.id), ["ordinary"]);
-  assert.equal(scan.skipped, 1);
-  await assert.rejects(readSessionIdentity(link, scan.directory), /ordinary/);
+  await assert.rejects(validateSessionFile(link), /ordinary/);
 });
 
-test("a child-directory junction cannot escape the expected session storage root", async (t) => {
+test("scanning resolves directory junctions and returns canonical file paths", async (t) => {
   const f = await withTempSessions(t);
-  const outside = path.join(f.agentDir, "outside");
+  const outside = path.join(f.projectDir, "external-sessions");
   await fs.mkdir(outside);
-  await fs.writeFile(path.join(outside, "unrelated.jsonl"), sessionText("unrelated", f.projectDir));
+  const file = path.join(outside, "external.jsonl");
+  await fs.writeFile(file, sessionText("external", f.projectDir));
   await fs.mkdir(path.join(f.sessionDir, "lite-subagent"));
   const candidate = path.join(f.sessionDir, "lite-subagent", f.parent.id);
   await fs.symlink(outside, candidate, "junction");
-  await assert.rejects(scanSubagentSessions(f.sessionDir, f.parent), /escapes/);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
+  assert.equal(scan.directory, await fs.realpath(outside));
+  assert.deepEqual(scan.sessions.map((session) => session.file), [await fs.realpath(file)]);
+  assert.equal(await validateSessionFile(path.join(candidate, "external.jsonl")), await fs.realpath(file));
 });
 
-test("selection revalidation rejects removal, wrong directory and changed headers", async (t) => {
+test("session validation compares a supplied header id", async (t) => {
   const f = await withTempSessions(t);
   const child = await f.child();
-  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
-  await assert.rejects(readSessionIdentity(f.parent.file, scan.directory), /outside/);
-  await fs.writeFile(child.file, sessionText("replacement", f.projectDir));
-  assert.equal((await readSessionIdentity(child.file, scan.directory)).id, "replacement");
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
+  const expected = scan.sessions[0].header;
+  assert.ok(expected);
+  assert.equal(await validateSessionFile(child.file, expected), await fs.realpath(child.file));
+  await fs.writeFile(child.file, sessionText("changed-id", f.projectDir));
+  await assert.rejects(validateSessionFile(child.file, expected), /expected session id/);
+});
+
+test("session validation rejects invalid headers and removed files", async (t) => {
+  const f = await withTempSessions(t);
+  const child = await f.child();
+  await fs.writeFile(child.file, "bad header\n");
+  await assert.rejects(validateSessionFile(child.file), /header/);
   await fs.unlink(child.file);
-  await assert.rejects(readSessionIdentity(child.file, scan.directory), { code: "ENOENT" });
+  await assert.rejects(validateSessionFile(child.file), { code: "ENOENT" });
 });

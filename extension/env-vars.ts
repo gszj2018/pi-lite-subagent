@@ -9,8 +9,6 @@
  *   parent session (depth 0); no code path may ever write "0".
  * - `PI_SUBAGENT_NAME`: agent name of the subagent owning the current process; written
  *   only into the child-process environment at spawn time.
- * - `PI_SUBAGENT_SWITCH_SESSION_RETURN_STACK`: bounded process-local inspection
- *   navigation state, managed by session-navigation and inherited without filtering.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -19,7 +17,6 @@ import type { ProcessEnvLike } from "./types.ts";
 export const PARENT_SESSION_ENV = "PI_SUBAGENT_PARENT_SESSION";
 export const DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 export const NAME_ENV = "PI_SUBAGENT_NAME";
-export const RETURN_STACK_ENV = "PI_SUBAGENT_SWITCH_SESSION_RETURN_STACK";
 export const MAX_SUBAGENT_DEPTH = 1; // hard-coded; not configurable yet
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Shared dependency-injection contracts and result types.
+ * Shared dependency-injection, subagent-result and inspection-navigation contracts.
  *
  * Only true system boundaries are injected here (`process.env`, process spawn);
  * Node built-ins (`node:fs`, `node:os`) are used directly and are not abstracted.
@@ -96,25 +96,20 @@ export interface SubagentDetails {
 /** Streaming update callback for a running tool call. */
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
-export interface SessionIdentity {
-  file: string;
-  id: string;
-}
-
-export interface ReturnFrame {
-  parent: SessionIdentity;
-  child: SessionIdentity;
-}
-
+/** An uncommitted switch; its object identity prevents stale operations from rolling back a newer switch. */
 export interface NavigationPending {
-  token: string;
+  /** Entering a child pushes a frame; returning to its parent pops one. */
   operation: "push" | "pop";
-  from: SessionIdentity;
-  to: SessionIdentity;
+  /** Canonical file path of the session active when the switch was requested. */
+  from: string;
+  /** Canonical file path of the session whose startup commits the operation. */
+  to: string;
 }
 
+/** Mutable in-process navigation state shared across extension-runtime replacements. */
 export interface NavigationState {
-  version: 1;
-  frames: ReturnFrame[];
+  /** Canonical parent session-file paths, ordered outermost to nearest and updated in place. */
+  frames: string[];
+  /** Switch awaiting startup reconciliation; committed frames remain unchanged until then. */
   pending?: NavigationPending;
 }

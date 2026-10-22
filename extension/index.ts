@@ -13,6 +13,7 @@ import { type ExtensionAPI, getAgentDir, parseArgs } from "@earendil-works/pi-co
 import { registerActiveAgentMarker } from "./active-agent.ts";
 import { isSubagentToolAllowed, registerSessionEnv } from "./env-vars.ts";
 import { registerSessionNavigation } from "./session-navigation.ts";
+import { getNavigationState } from "./shared-state.ts";
 import { registerSubagentCommands } from "./subagent-commands.ts";
 import { registerSubagentTool } from "./subagent-tool.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
@@ -30,9 +31,10 @@ export default function setup(pi: ExtensionAPI): void {
       noExtensions: parsed.noExtensions ?? false,
     },
   };
+  const navigationState = getNavigationState();
   registerSessionEnv(pi, deps.env);
-  registerSessionNavigation(pi, deps.env);
-  registerActiveAgentMarker(pi, deps.env);
+  registerSessionNavigation(pi, navigationState);
+  registerActiveAgentMarker(pi, deps.env, navigationState);
   registerSubagentCommands(pi, deps);
   if (isSubagentToolAllowed(deps.env)) {
     // Subagent sessions are leaf nodes and never register the tool.

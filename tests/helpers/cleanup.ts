@@ -14,3 +14,8 @@ export async function removeTruncationArtifact(filePath: string): Promise<void> 
   await fs.promises.rm(filePath, { force: true });
   await fs.promises.rmdir(path.dirname(filePath));
 }
+
+/** Reset this extension's process-local shared state between tests; leave env and session files untouched. */
+export function clearSharedState(): void {
+  delete globalThis.__github_gszj2018_piLiteSubagent_sharedState;
+}

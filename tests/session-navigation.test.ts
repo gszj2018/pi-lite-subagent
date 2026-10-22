@@ -1,207 +1,179 @@
-/** Pure state and fake lifecycle tests; no real environment, session files or runtime switches. */
+/** Fake lifecycle and registered-command tests over self-cleaning temp sessions; no real Pi or terminal. */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
-import { RETURN_STACK_ENV } from "../extension/env-vars.ts";
-import { MAX_RETURN_STACK_BYTES, parseNavigationState, registerSessionNavigation, serializeNavigationState } from "../extension/session-navigation.ts";
-import type { ProcessEnvLike, SessionIdentity, NavigationState, ReturnFrame } from "../extension/types.ts";
+import { currentSessionFile, registerSessionNavigation } from "../extension/session-navigation.ts";
+import type { NavigationState, NavigationPending } from "../extension/types.ts";
 import { createContext, MockPi } from "./helpers/mocks.ts";
+import { withTempSessions } from "./helpers/sessions-fixture.ts";
 
-const identity = (id: string): SessionIdentity => ({ file: path.resolve("virtual-sessions", `${id}.jsonl`), id });
-const parent = identity("parent");
-const child = identity("child");
-const frame: ReturnFrame = { parent, child };
-const state = (frames: ReturnFrame[] = [frame]): NavigationState => ({ version: 1, frames });
-
-function runtime(current: SessionIdentity, env: ProcessEnvLike = {}) {
-  const pi = new MockPi();
-  const mock = createContext({ sessionId: current.id, sessionFile: current.file });
-  const ctx = mock.ctx as unknown as ExtensionCommandContext;
-  const navigation = registerSessionNavigation(pi.api, env);
-  registerActiveAgentMarker(pi.api, env);
-  return { pi, ctx, navigation, env, notifications: mock.notifications };
+async function fixture(t: TestContext) {
+  const files = await withTempSessions(t);
+  const child = await files.child();
+  const state: NavigationState = { frames: [] };
+  const runtime = (file: string) => {
+    const pi = new MockPi();
+    const mock = createContext({ sessionFile: file });
+    const ctx = mock.ctx as unknown as ExtensionCommandContext;
+    registerSessionNavigation(pi.api, state);
+    registerActiveAgentMarker(pi.api, {}, state);
+    const invoke = async (name: string) => { await pi.commands.get(name)!.handler("", ctx); };
+    return { pi, ctx, invoke, notifications: mock.notifications };
+  };
+  return { files, parent: files.parent.file, child: child.file, state, runtime };
 }
 
-test("navigation registration owns its two commands without registering browser history", () => {
-  const f = runtime(parent);
-  assert.deepEqual([...f.pi.commands.keys()], ["switch-to-subagent-session", "return-to-parent-session"]);
-  assert.equal(f.pi.count("message_end"), 0);
+test("navigation registration owns its two commands without registering browser history", async (t) => {
+  const f = await fixture(t);
+  const source = f.runtime(f.parent);
+  assert.deepEqual([...source.pi.commands.keys()], ["switch-to-subagent-session", "return-to-parent-session"]);
+  assert.equal(source.pi.count("message_end"), 0);
 });
 
-test("navigation state checks version, identities, chain continuity, cycles and pending operations", () => {
-  assert.deepEqual(parseNavigationState(undefined), state([]));
-  assert.equal(serializeNavigationState(state([])), undefined);
-  const raw = serializeNavigationState(state())!;
-  assert.deepEqual(parseNavigationState(raw), state());
-  for (const invalid of ["", "null", "[]", "{}", '{"version":2,"frames":[]}', JSON.stringify({
-    version: 1, frames: [{ parent: { ...parent, file: "relative.jsonl" }, child }],
-  }), JSON.stringify(state([{ parent, child }, { parent, child: identity("other") }])),
-  JSON.stringify(state([{ parent, child: parent }])), JSON.stringify({ ...state(), pending: {
-    token: "token", operation: "pop", from: child, to: identity("wrong-parent"),
-  } })]) assert.throws(() => parseNavigationState(invalid));
-  const frames = Array.from({ length: 4 }, (_, index) => ({ parent: identity(`n${index}`), child: identity(`n${index + 1}`) }));
-  assert.equal(parseNavigationState(serializeNavigationState(state(frames))).frames.length, 4);
-  assert.throws(() => serializeNavigationState(state([...frames, { parent: identity("n4"), child: identity("n5") }])));
-  assert.throws(() => serializeNavigationState({ ...state(frames), pending: {
-    token: "token", operation: "push", from: identity("n4"), to: identity("n5"),
-  } }));
+test("current sessions resolve directory aliases to real paths", async (t) => {
+  const f = await fixture(t);
+  const alias = path.join(f.files.projectDir, "linked-sessions");
+  await fs.symlink(f.files.sessionDir, alias, "junction");
+  const source = f.runtime(path.join(alias, "parent.jsonl"));
+  assert.equal(currentSessionFile(source.ctx), await fs.realpath(f.parent));
+  assert.throws(() => currentSessionFile(createContext().ctx), /file path/);
+  assert.throws(() => currentSessionFile(createContext({ sessionFile: path.join(alias, "missing.jsonl") }).ctx),
+    { code: "ENOENT" });
 });
 
-test("the 4 KiB limit includes pending JSON and counts UTF-8 bytes rather than characters", () => {
-  const raw = JSON.stringify(state());
-  assert.equal(parseNavigationState(raw + " ".repeat(MAX_RETURN_STACK_BYTES - Buffer.byteLength(raw))).frames.length, 1);
-  assert.throws(() => parseNavigationState(raw + " ".repeat(MAX_RETURN_STACK_BYTES - Buffer.byteLength(raw) + 1)));
-  const unicode = JSON.stringify(state([{ parent: { ...parent, file: path.resolve("汉".repeat(1400), "parent.jsonl") }, child }]));
-  assert.ok(unicode.length < MAX_RETURN_STACK_BYTES);
-  assert.ok(Buffer.byteLength(unicode) > MAX_RETURN_STACK_BYTES);
-  assert.throws(() => parseNavigationState(unicode));
+test("pop commit errors clear navigation state when the stack is empty or its top does not match", async (t) => {
+  const f = await fixture(t);
+  for (const frames of [[], [f.child]]) {
+    f.state.frames = frames;
+    f.state.pending = { operation: "pop", from: f.child, to: f.parent };
+    const target = f.runtime(f.parent);
+    await target.pi.emitLifecycle("session_start", target.ctx, "resume");
+    assert.match(target.notifications[0].message, /Return transaction does not match.*cleared/);
+    assert.equal(target.notifications[0].type, "error");
+    assert.equal(f.state.frames, frames);
+    assert.deepEqual(f.state, { frames: [] });
+  }
 });
 
-test("fresh runtimes commit push/pop before marker scanning, keep reload state and clear only on quit", async () => {
-  const env: ProcessEnvLike = {};
-  const source = runtime(parent, env);
-  await source.pi.emitLifecycle("session_start", source.ctx);
+test("cancelled or failed return commands roll back only their own pending object, never newer state", async (t) => {
+  const f = await fixture(t);
+  f.state.frames = [f.parent];
+  const source = f.runtime(f.child);
+  const frames = f.state.frames;
+  const before = [...frames];
+  for (const failure of [false, true]) {
+    const notices = source.notifications.length;
+    source.ctx.switchSession = async () => {
+      if (failure) throw new Error("switch failed");
+      return { cancelled: true };
+    };
+    await source.invoke("return-to-parent-session");
+    if (failure) assert.match(source.notifications.at(-1)!.message, /switch failed/);
+    assert.equal(source.notifications.length, notices + Number(failure));
+    assert.equal(f.state.frames, frames);
+    assert.deepEqual(f.state.frames, before);
+    assert.equal(f.state.pending, undefined);
+  }
+  for (const failure of [false, true]) {
+    let newer: NavigationPending | undefined;
+    source.ctx.switchSession = async () => {
+      newer = { ...f.state.pending! };
+      f.state.pending = newer;
+      if (failure) throw new Error("old switch failed");
+      return { cancelled: true };
+    };
+    await source.invoke("return-to-parent-session");
+    if (failure) assert.match(source.notifications.at(-1)!.message, /old switch failed/);
+    assert.ok(newer);
+    assert.equal(f.state.pending, newer);
+    assert.equal(f.state.frames, frames);
+    assert.deepEqual(f.state.frames, before);
+    delete f.state.pending;
+  }
   source.ctx.switchSession = async () => {
-    assert.equal(parseNavigationState(env[RETURN_STACK_ENV]).frames.length, 0, "pending alone is not committed");
-    assert.ok(env[RETURN_STACK_ENV]);
-    assert.deepEqual(await source.pi.emitLifecycle("input", source.ctx, { text: "pending env protects input" }),
-      [{ action: "handled" }]);
-    const gate = await source.pi.emitLifecycle("session_before_switch", source.ctx,
-      { reason: "resume", targetSessionFile: child.file });
-    assert.ok(gate.every((result) => result === undefined));
+    const target = f.runtime(f.parent);
+    await target.pi.emitLifecycle("session_start", target.ctx, "resume");
+    assert.deepEqual(target.notifications, []);
+    return { cancelled: true };
+  };
+  await source.invoke("return-to-parent-session");
+  assert.deepEqual(f.state, { frames: [] }, "late cancellation preserves the target runtime's committed pop");
+});
+
+test("replacement gates resolve target aliases and repeatedly allow only matching idle pending switches", async (t) => {
+  const f = await fixture(t);
+  const source = f.runtime(f.parent);
+  f.state.frames = [f.parent];
+  assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx,
+    { reason: "resume", targetSessionFile: f.child }), [{ cancel: true }]);
+  const alias = path.join(f.files.projectDir, "linked-child-sessions");
+  await fs.symlink(path.dirname(f.child), alias, "junction");
+  const pending: NavigationPending = { operation: "push", from: f.parent, to: f.child };
+  f.state.pending = pending;
+  for (const file of [f.child, path.join(alias, "child.jsonl")]) {
+    assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx,
+      { reason: "resume", targetSessionFile: file }), [undefined]);
+    assert.equal(f.state.pending, pending);
+  }
+  for (const event of [
+    { reason: "new" }, { reason: "resume", targetSessionFile: f.parent },
+    { reason: "resume", targetSessionFile: "child.jsonl" },
+  ]) assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx, event), [{ cancel: true }]);
+  assert.deepEqual(await source.pi.emitLifecycle("session_before_fork", source.ctx), [{ cancel: true }]);
+  source.ctx.isIdle = () => false;
+  assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx,
+    { reason: "resume", targetSessionFile: f.child }), [{ cancel: true }]);
+  source.ctx.isIdle = () => true;
+  source.ctx.hasPendingMessages = () => true;
+  assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx,
+    { reason: "resume", targetSessionFile: f.child }), [{ cancel: true }]);
+  source.ctx.hasPendingMessages = () => false;
+  source.ctx.sessionManager.getSessionFile = () => f.child;
+  assert.deepEqual(await source.pi.emitLifecycle("session_before_switch", source.ctx,
+    { reason: "resume", targetSessionFile: f.child }), [{ cancel: true }]);
+  assert.equal(f.state.pending, pending);
+});
+
+test("startup commits at the pending target and clears navigation for every other path", async (t) => {
+  const f = await fixture(t);
+  const unrelated = await f.files.child(f.files.parent, "unrelated");
+  for (const operation of ["push", "pop"] as const) {
+    const from = operation === "push" ? f.parent : f.child;
+    const to = operation === "push" ? f.child : f.parent;
+    for (const current of [from, to, unrelated.file]) {
+      f.state.frames = operation === "push" ? [] : [f.parent];
+      f.state.pending = { operation, from, to };
+      const source = f.runtime(current);
+      await source.pi.emitLifecycle("session_start", source.ctx);
+      const frames = current === to && operation === "push" ? [from] : [];
+      assert.deepEqual(f.state, { frames });
+      assert.equal(source.notifications.length, current === to ? 0 : 1);
+      if (current !== to) assert.match(source.notifications[0].message, /transaction does not match.*cleared/);
+    }
+  }
+});
+
+test("a return failure after teardown leaves pending for fresh-runtime validation without accessing stale context", async (t) => {
+  const f = await fixture(t);
+  f.state.frames = [f.parent];
+  const source = f.runtime(f.child);
+  source.ctx.switchSession = async () => {
     await source.pi.emitLifecycle("session_shutdown", source.ctx, "resume");
-    return { cancelled: false };
+    const stale = () => { throw new Error("stale context"); };
+    source.ctx.ui.notify = stale;
+    source.ctx.sessionManager.getSessionFile = stale;
+    source.ctx.isIdle = stale;
+    throw new Error("replacement failed");
   };
-  await source.navigation.switch(source.ctx, "push", parent, child);
-  const target = runtime(child, env);
-  await target.pi.emitLifecycle("session_start", target.ctx, "resume");
-  assert.deepEqual(parseNavigationState(env[RETURN_STACK_ENV]).frames, [frame]);
-  target.ctx.sessionManager.getSessionId = () => { throw new Error("input must not revalidate identity"); };
-  assert.deepEqual(await target.pi.emitLifecycle("input", target.ctx, { text: "blocked" }), [{ action: "handled" }]);
-  target.ctx.sessionManager.getSessionId = () => child.id;
-  await target.pi.emitLifecycle("session_shutdown", target.ctx, "reload");
-  assert.ok(env[RETURN_STACK_ENV]);
-  const reloaded = runtime(child, env);
-  await reloaded.pi.emitLifecycle("session_start", reloaded.ctx, "reload");
-  reloaded.ctx.switchSession = async () => ({ cancelled: false });
-  await reloaded.navigation.switch(reloaded.ctx, "pop", child, parent);
-  const returned = runtime(parent, env);
-  await returned.pi.emitLifecycle("session_start", returned.ctx, "resume");
-  assert.equal(env[RETURN_STACK_ENV], undefined);
-  assert.deepEqual(await returned.pi.emitLifecycle("input", returned.ctx, { text: "allowed" }), [undefined]);
-  env[RETURN_STACK_ENV] = serializeNavigationState(state());
-  await returned.pi.emitLifecycle("session_shutdown", returned.ctx, "quit");
-  assert.equal(env[RETURN_STACK_ENV], undefined);
-});
-
-test("cancellation and pre-teardown failures roll back only the matching transaction", async () => {
-  const env: ProcessEnvLike = { [RETURN_STACK_ENV]: serializeNavigationState(state()) };
-  const f = runtime(child, env);
-  await f.pi.emitLifecycle("session_start", f.ctx);
-  const before = env[RETURN_STACK_ENV];
-  f.ctx.switchSession = async () => ({ cancelled: true });
-  await f.navigation.switch(f.ctx, "pop", child, parent);
-  assert.equal(env[RETURN_STACK_ENV], before);
-  f.ctx.switchSession = async () => { throw new Error("before teardown"); };
-  await assert.rejects(f.navigation.switch(f.ctx, "pop", child, parent), /before teardown/);
-  assert.equal(env[RETURN_STACK_ENV], before);
-  f.ctx.switchSession = async () => {
-    const newer = parseNavigationState(env[RETURN_STACK_ENV]);
-    newer.pending!.token = "newer-token";
-    env[RETURN_STACK_ENV] = serializeNavigationState(newer);
-    return { cancelled: true };
-  };
-  await f.navigation.switch(f.ctx, "pop", child, parent);
-  assert.equal(parseNavigationState(env[RETURN_STACK_ENV]).pending?.token, "newer-token");
-});
-
-test("invalid reads clear and notify; oversized writes preserve the previous valid stack", async () => {
-  const env: ProcessEnvLike = { [RETURN_STACK_ENV]: "not-json" };
-  const f = runtime(child, env);
-  await f.pi.emitLifecycle("session_start", f.ctx);
-  assert.equal(env[RETURN_STACK_ENV], undefined);
-  assert.deepEqual(await f.pi.emitLifecycle("input", f.ctx, { text: "cleared" }), [undefined]);
-  assert.equal(f.notifications[0].type, "error");
-  env[RETURN_STACK_ENV] = serializeNavigationState(state());
-  const before = env[RETURN_STACK_ENV];
-  await assert.rejects(f.navigation.switch(f.ctx, "push", child, {
-    file: path.resolve("汉".repeat(1500), "large.jsonl"), id: "large",
-  }), /4 KiB/);
-  assert.equal(env[RETURN_STACK_ENV], before);
-  env[RETURN_STACK_ENV] = "bad";
-  assert.throws(() => f.navigation.check(f.ctx), /cleared/);
-  assert.equal(env[RETURN_STACK_ENV], undefined);
-  const frames = Array.from({ length: 4 }, (_, index) => ({ parent: identity(`n${index}`), child: identity(`n${index + 1}`) }));
-  const full: ProcessEnvLike = { [RETURN_STACK_ENV]: serializeNavigationState(state(frames)) };
-  const last = runtime(identity("n4"), full);
-  const original = full[RETURN_STACK_ENV];
-  await assert.rejects(last.navigation.switch(last.ctx, "push", identity("n4"), identity("n5")), /four layers/);
-  assert.equal(full[RETURN_STACK_ENV], original);
-});
-
-test("new/resume/fork/clone gates preserve valid state and consume the authorized credential once", async () => {
-  const env: ProcessEnvLike = { [RETURN_STACK_ENV]: serializeNavigationState(state()) };
-  const f = runtime(child, env);
-  await f.pi.emitLifecycle("session_start", f.ctx);
-  const before = env[RETURN_STACK_ENV];
-  for (const event of [{ reason: "new" }, { reason: "resume", targetSessionFile: parent.file }]) {
-    assert.deepEqual(await f.pi.emitLifecycle("session_before_switch", f.ctx, event), [{ cancel: true }]);
-    assert.equal(env[RETURN_STACK_ENV], before);
-  }
-  for (const position of ["before", "at"]) {
-    assert.deepEqual(await f.pi.emitLifecycle("session_before_fork", f.ctx, { entryId: "entry", position }), [{ cancel: true }]);
-  }
-  f.ctx.switchSession = async () => {
-    assert.deepEqual(await f.pi.emitLifecycle("session_before_switch", f.ctx,
-      { reason: "resume", targetSessionFile: parent.file }), [undefined]);
-    assert.deepEqual(await f.pi.emitLifecycle("session_before_switch", f.ctx,
-      { reason: "resume", targetSessionFile: parent.file }), [{ cancel: true }]);
-    return { cancelled: true };
-  };
-  await f.navigation.switch(f.ctx, "pop", child, parent);
-  assert.equal(env[RETURN_STACK_ENV], before);
-  const waiting = runtime(parent);
-  await waiting.pi.emitLifecycle("session_start", waiting.ctx);
-  waiting.env[RETURN_STACK_ENV] = serializeNavigationState({ ...state([]), pending: {
-    token: "env-only-token", operation: "push", from: parent, to: child,
-  } });
-  assert.deepEqual(await waiting.pi.emitLifecycle("session_before_switch", waiting.ctx,
-    { reason: "resume", targetSessionFile: child.file }), [{ cancel: true }], "env presence alone grants no permit");
-  assert.equal(parseNavigationState(waiting.env[RETURN_STACK_ENV]).pending?.token, "env-only-token");
-});
-
-test("startup reconciles interrupted source/target transactions and clears mismatched committed stacks", async () => {
-  const pending = { token: "token", operation: "push" as const, from: parent, to: child };
-  for (const [current, expectedDepth] of [[parent, 0], [child, 1], [identity("unrelated"), 0]] as const) {
-    const env: ProcessEnvLike = { [RETURN_STACK_ENV]: serializeNavigationState({ ...state([]), pending }) };
-    const f = runtime(current, env);
-    await f.pi.emitLifecycle("session_start", f.ctx);
-    assert.equal(parseNavigationState(env[RETURN_STACK_ENV]).frames.length, expectedDepth);
-    assert.equal(parseNavigationState(env[RETURN_STACK_ENV]).pending, undefined);
-    assert.equal(f.notifications.length, current.id === "unrelated" ? 1 : 0);
-  }
-  const env: ProcessEnvLike = { [RETURN_STACK_ENV]: serializeNavigationState(state()) };
-  const f = runtime(parent, env);
-  await f.pi.emitLifecycle("session_start", f.ctx);
-  assert.equal(env[RETURN_STACK_ENV], undefined);
-  assert.equal(f.notifications.length, 1);
-});
-
-test("a failure after teardown preserves pending recovery without touching the stale context", async () => {
-  const env: ProcessEnvLike = {};
-  const f = runtime(parent, env);
-  await f.pi.emitLifecycle("session_start", f.ctx);
-  f.ctx.switchSession = async () => {
-    await f.pi.emitLifecycle("session_shutdown", f.ctx, "resume");
-    f.ctx.ui.notify = () => { throw new Error("stale UI"); };
-    throw new Error("replacement runtime failed");
-  };
-  await f.navigation.switch(f.ctx, "push", parent, child);
-  assert.ok(parseNavigationState(env[RETURN_STACK_ENV]).pending);
-  const recovered = runtime(parent, env);
+  await source.invoke("return-to-parent-session");
+  assert.deepEqual(f.state.pending, { operation: "pop", from: f.child, to: f.parent });
+  const recovered = f.runtime(f.child);
   await recovered.pi.emitLifecycle("session_start", recovered.ctx, "reload");
-  assert.equal(env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
+  assert.equal(recovered.notifications[0].type, "error");
+  assert.match(recovered.notifications[0].message, /transaction does not match.*cleared/);
 });

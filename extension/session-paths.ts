@@ -1,7 +1,6 @@
 /** Shared persistence paths; these helpers never create directories. */
 
 import * as path from "node:path";
-import type { SessionIdentity } from "./types.ts";
 
 export function isPathSafeSessionId(value: string): boolean {
   return /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(value);
@@ -12,11 +11,8 @@ export function subagentSessionDir(sessionDir: string, sessionId: string): strin
     ? path.join(sessionDir, "lite-subagent", sessionId) : undefined;
 }
 
-export function sameSession(a: SessionIdentity, b: SessionIdentity): boolean {
-  return a.id === b.id && path.relative(a.file, b.file) === "";
+/** Compare session-file paths using the platform's path rules, including Windows case handling. */
+export function sameSessionFile(a: string, b: string): boolean {
+  return path.relative(a, b) === "";
 }
 
-export function isInsideDirectory(directory: string, file: string): boolean {
-  const relative = path.relative(directory, file);
-  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-}

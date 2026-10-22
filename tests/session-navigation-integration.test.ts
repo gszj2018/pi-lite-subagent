@@ -7,11 +7,11 @@ import { test, type TestContext } from "node:test";
 import { type ExtensionCommandContext, parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
-import { PARENT_SESSION_ENV, registerSessionEnv, RETURN_STACK_ENV } from "../extension/env-vars.ts";
-import { parseNavigationState, registerSessionNavigation, type SessionNavigation } from "../extension/session-navigation.ts";
+import { PARENT_SESSION_ENV, registerSessionEnv } from "../extension/env-vars.ts";
+import { registerSessionNavigation } from "../extension/session-navigation.ts";
 import { registerSubagentCommands } from "../extension/subagent-commands.ts";
-import { MAX_SESSION_METADATA_BYTES, readSessionIdentity } from "../extension/subagent-sessions.ts";
-import type { ProcessEnvLike, SessionIdentity } from "../extension/types.ts";
+import { MAX_SESSION_METADATA_BYTES, validateSessionFile } from "../extension/subagent-sessions.ts";
+import type { NavigationState, ProcessEnvLike } from "../extension/types.ts";
 import { agentMarkdown, writeAgentFile } from "./helpers/agents-fixture.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
@@ -22,7 +22,6 @@ interface Runtime {
   ui: BrowserUI;
   ctx: ExtensionCommandContext;
   options: ContextOptions;
-  navigation: SessionNavigation;
   notifications: { message: string; type?: string }[];
   alive: boolean;
 }
@@ -33,28 +32,31 @@ async function fixture(t: TestContext) {
   await writeAgentFile(path.join(agentDir, "agents"), "worker.md", agentMarkdown({ name: "worker", description: "test" }));
   await fs.mkdir(path.join(projectDir, ".pi", "agents"), { recursive: true });
   const env: ProcessEnvLike = {};
+  const state: NavigationState = { frames: [] };
   const runtimes: Runtime[] = [];
   const switches: string[] = [];
   const staleAccesses: string[] = [];
   let current: Runtime;
   let switchMode: "normal" | "cancel" | "throw" = "normal";
-  const makeRuntime = async (identity: SessionIdentity, reason = "resume"): Promise<Runtime> => {
+  const makeRuntime = async (file: string, reason = "resume"): Promise<Runtime> => {
     const pi = new MockPi();
     const ui = new BrowserUI();
     ui.terminal.rows = 50;
-    const entries = parseSessionEntries(await fs.readFile(identity.file, "utf8"));
+    const entries = parseSessionEntries(await fs.readFile(file, "utf8"));
+    const header = entries[0];
+    assert.equal(header?.type, "session", "the fake runtime loads the current file's header");
     const options: ContextOptions = {
-      cwd: projectDir, sessionId: identity.id, sessionFile: identity.file,
-      sessionDir: path.dirname(identity.file), entries,
+      cwd: projectDir, sessionId: header.id, sessionFile: file,
+      sessionDir: path.dirname(file), entries,
     };
     const mock = createContext(options);
     const ctx = mock.ctx as unknown as ExtensionCommandContext;
     ctx.ui.custom = ui.custom;
     registerSessionEnv(pi.api, env);
-    const navigation = registerSessionNavigation(pi.api, env);
-    registerActiveAgentMarker(pi.api, env);
+    registerSessionNavigation(pi.api, state);
+    registerActiveAgentMarker(pi.api, env, state);
     registerSubagentCommands(pi.api, { agentDir });
-    const runtime = { pi, ui, ctx, options, navigation, notifications: mock.notifications, alive: true };
+    const runtime = { pi, ui, ctx, options, notifications: mock.notifications, alive: true };
     runtimes.push(runtime);
     ctx.switchSession = async (file) => {
       switches.push(file);
@@ -63,7 +65,7 @@ async function fixture(t: TestContext) {
         return { cancelled: true };
       }
       if (switchMode === "throw") throw new Error("mock switch failed before teardown");
-      const target = await readSessionIdentity(file);
+      const target = await validateSessionFile(file);
       await pi.emitLifecycle("session_shutdown", ctx, { reason: "resume", targetSessionFile: file });
       runtime.alive = false;
       const stale = () => { staleAccesses.push("stale context access"); throw new Error("stale context access"); };
@@ -79,7 +81,7 @@ async function fixture(t: TestContext) {
     await pi.emitLifecycle("session_start", ctx, reason);
     return runtime;
   };
-  current = await makeRuntime(files.parent, "startup");
+  current = await makeRuntime(files.parent.file, "startup");
   t.after(async () => {
     if (current.alive) await current.pi.emitLifecycle("session_shutdown", current.ctx, "quit");
     for (const runtime of runtimes) runtime.ui.cancelAll();
@@ -95,7 +97,7 @@ async function fixture(t: TestContext) {
     return { execution };
   };
   return {
-    ...files, env, switches, staleAccesses, runtimes, invoke, openPicker,
+    ...files, env, state, switches, staleAccesses, runtimes, invoke, openPicker,
     get current() { return current; },
     setSwitchMode: (mode: typeof switchMode) => { switchMode = mode; },
     press: (key: string) => current.ui.interactions.at(-1)!.component!.handleInput!(key),
@@ -103,11 +105,17 @@ async function fixture(t: TestContext) {
   };
 }
 
-test("integration: parent -> child -> parent commits across new runtimes and protects markerless sessions", async (t) => {
+test("integration: parent -> external child -> parent uses real paths and protects markerless sessions", async (t) => {
   const f = await fixture(t);
   const child = await f.child();
+  const directory = path.dirname(child.file);
+  const external = path.join(f.projectDir, "external-sessions");
+  await fs.rename(directory, external);
+  await fs.symlink(external, directory, "junction");
+  const realChild = await fs.realpath(child.file);
   const before = await fs.readFile(child.file);
   const source = f.current;
+  const frames = f.state.frames;
   const { execution } = await f.openPicker();
   assert.equal(source.ui.interactions.at(-1)!.options?.overlay, false);
   assert.equal(source.pi.events.count("permissions:ui_prompt"), 0);
@@ -118,16 +126,19 @@ test("integration: parent -> child -> parent commits across new runtimes and pro
   await execution;
   assert.equal(source.alive, false);
   assert.equal(f.current.ctx.sessionManager.getSessionId(), child.id);
-  assert.equal(parseNavigationState(f.env[RETURN_STACK_ENV]).frames.length, 1);
+  assert.equal(f.current.ctx.sessionManager.getSessionFile(), realChild);
+  assert.equal(f.state.frames, frames);
+  assert.deepEqual(f.state, { frames: [f.parent.file] });
   assert.equal(f.env[PARENT_SESSION_ENV], child.id);
   assert.deepEqual(await f.current.pi.emitLifecycle("input", f.current.ctx, { text: "blocked" }), [{ action: "handled" }]);
   await f.invoke("return-to-parent-session");
   assert.equal(f.current.ctx.sessionManager.getSessionId(), f.parent.id);
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.equal(f.state.frames, frames);
+  assert.deepEqual(f.state, { frames: [] });
   assert.equal(f.env[PARENT_SESSION_ENV], f.parent.id);
   assert.deepEqual(await f.current.pi.emitLifecycle("input", f.current.ctx, { text: "allowed" }), [undefined]);
   assert.deepEqual(await fs.readFile(child.file), before, "navigation never adds a marker or rewrites a header");
-  assert.deepEqual(f.switches, [child.file, f.parent.file]);
+  assert.deepEqual(f.switches, [realChild, f.parent.file]);
   assert.deepEqual(f.staleAccesses, []);
 });
 
@@ -140,12 +151,12 @@ test("integration: synthetic nested inspection stays read-only at intermediate l
   const second = await f.openPicker();
   f.press("\r"); await second.execution;
   assert.equal(f.current.ctx.sessionManager.getSessionId(), grandchild.id);
-  assert.equal(parseNavigationState(f.env[RETURN_STACK_ENV]).frames.length, 2);
+  assert.equal(f.state.frames.length, 2);
   await f.invoke("return-to-parent-session");
-  assert.equal(parseNavigationState(f.env[RETURN_STACK_ENV]).frames.length, 1);
+  assert.equal(f.state.frames.length, 1);
   assert.deepEqual(await f.current.pi.emitLifecycle("input", f.current.ctx, { text: "blocked" }), [{ action: "handled" }]);
   await f.invoke("return-to-parent-session");
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
   assert.deepEqual(await f.current.pi.emitLifecycle("input", f.current.ctx, { text: "allowed" }), [undefined]);
   assert.ok(f.runtimes.every((runtime) => runtime.pi.appendedEntries.length === 0));
 });
@@ -155,37 +166,38 @@ test("integration: cancellation, errors and other extensions' cancellation prese
   await f.child();
   const cancelled = await f.openPicker();
   f.press("\x1b"); await cancelled.execution;
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
   assert.equal(f.switches.length, 0);
   for (const mode of ["cancel", "throw"] as const) {
     f.setSwitchMode(mode);
     const opening = await f.openPicker();
     f.press("\r"); await opening.execution;
-    assert.equal(f.env[RETURN_STACK_ENV], undefined);
+    assert.deepEqual(f.state, { frames: [] });
     assert.equal(f.current.alive, true);
   }
   f.setSwitchMode("normal");
   const opening = await f.openPicker();
   f.press("\r"); await opening.execution;
-  const before = f.env[RETURN_STACK_ENV];
+  const before = structuredClone(f.state);
   const off = f.current.pi.api.on("session_before_switch", () => ({ cancel: true }));
   await f.invoke("return-to-parent-session");
-  assert.equal(f.env[RETURN_STACK_ENV], before);
+  assert.deepEqual(f.state, before);
   off();
   await f.invoke("return-to-parent-session");
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
 });
 
-test("integration: selected-file replacement and deletion fail before any switch or stack write", async (t) => {
+test("integration: selected-file deletion, invalid headers and changed ids fail before switching", async (t) => {
   const f = await fixture(t);
   const child = await f.child();
-  for (const replacement of ["new-id", undefined]) {
+  for (const content of [undefined, "bad header\n", sessionText("../unsafe", f.projectDir),
+    sessionText("changed-id", f.projectDir)]) {
     await fs.writeFile(child.file, sessionText(child.id, f.projectDir));
     const opening = await f.openPicker();
-    if (replacement) await fs.writeFile(child.file, sessionText(replacement, f.projectDir));
-    else await fs.unlink(child.file);
+    if (content === undefined) await fs.unlink(child.file);
+    else await fs.writeFile(child.file, content);
     f.press("\r"); await opening.execution;
-    assert.equal(f.env[RETURN_STACK_ENV], undefined);
+    assert.deepEqual(f.state, { frames: [] });
     assert.equal(f.switches.length, 0);
     assert.equal(f.current.notifications.at(-1)?.type, "error");
   }
@@ -196,18 +208,18 @@ test("integration: missing or invalid parent files retain the return frame for r
   await f.child();
   const opening = await f.openPicker();
   f.press("\r"); await opening.execution;
-  const before = f.env[RETURN_STACK_ENV];
+  const before = structuredClone(f.state);
   const parentText = await fs.readFile(f.parent.file);
-  for (const content of [undefined, "bad header\n", sessionText("wrong-id", f.projectDir)]) {
+  for (const content of [undefined, "bad header\n", sessionText("../unsafe", f.projectDir)]) {
     if (content === undefined) await fs.unlink(f.parent.file);
     else await fs.writeFile(f.parent.file, content);
     await f.invoke("return-to-parent-session");
-    assert.equal(f.env[RETURN_STACK_ENV], before);
+    assert.deepEqual(f.state, before);
     assert.equal(f.current.notifications.at(-1)?.type, "error");
   }
   await fs.writeFile(f.parent.file, parentText);
   await f.invoke("return-to-parent-session");
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
 });
 
 test("integration: navigation gates reject non-TUI, busy, pending, empty and ephemeral cases", async (t) => {
@@ -236,7 +248,7 @@ test("integration: navigation gates reject non-TUI, busy, pending, empty and eph
   assert.ok(f.current.notifications.every((notice) => notice.type === "error"));
 });
 
-test("integration: idle/pending and identity are rechecked after scan and selection", async (t) => {
+test("integration: idle/pending and the source path are rechecked after scan and selection", async (t) => {
   const f = await fixture(t);
   await f.child();
   const runtime = f.current;
@@ -252,10 +264,10 @@ test("integration: idle/pending and identity are rechecked after scan and select
   assert.equal(f.switches.length, 0);
   runtime.options.pendingMessages = false;
   const next = await f.openPicker();
-  runtime.options.sessionId = "different-session";
+  runtime.options.sessionFile = path.join(f.sessionDir, "different-session.jsonl");
   f.press("\r"); await next.execution;
   assert.equal(f.switches.length, 0);
-  runtime.options.sessionId = f.parent.id;
+  runtime.options.sessionFile = f.parent.file;
   const validation = await f.openPicker();
   let idleChecks = 0;
   runtime.ctx.isIdle = () => ++idleChecks < 2;
@@ -263,7 +275,7 @@ test("integration: idle/pending and identity are rechecked after scan and select
   assert.equal(f.switches.length, 0, "idle is checked again after asynchronous target-file validation");
   runtime.ctx.isIdle = () => true;
   runtime.ctx.sessionManager.getSessionDir = () => {
-    runtime.options.sessionId = "changed-during-scan";
+    runtime.options.sessionFile = path.join(f.sessionDir, "changed-during-scan.jsonl");
     return original();
   };
   await f.invoke();
@@ -344,7 +356,7 @@ test("integration: an existing marker remains read-only after the outermost retu
   const opening = await f.openPicker();
   f.press("\r"); await opening.execution;
   await f.invoke("return-to-parent-session");
-  assert.equal(f.env[RETURN_STACK_ENV], undefined);
+  assert.deepEqual(f.state, { frames: [] });
   assert.deepEqual(await f.current.pi.emitLifecycle("input", f.current.ctx, { text: "still blocked" }), [{ action: "handled" }]);
 });
 
@@ -365,7 +377,6 @@ test("integration: valid large sessions remain openable with unknown metadata", 
   try { await handle.truncate(MAX_SESSION_METADATA_BYTES + 1); } finally { await handle.close(); }
   const opening = await f.openPicker();
   assert.match(f.render(), /unknown · large.jsonl/);
-  assert.equal(f.current.notifications.at(-1)?.type, "warning");
   f.press("\r"); await opening.execution;
   assert.equal(f.current.ctx.sessionManager.getSessionId(), child.id);
 });

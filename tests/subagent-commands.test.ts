@@ -7,6 +7,7 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
 import { registerSubagentCommands } from "../extension/subagent-commands.ts";
 import { registerSessionNavigation } from "../extension/session-navigation.ts";
+import type { NavigationState } from "../extension/types.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
@@ -25,7 +26,8 @@ async function fixture(t: TestContext, options: ContextOptions = {}) {
   const mock = createContext({ cwd: project, ...options });
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
-  registerSessionNavigation(pi.api, {});
+  const navigationState: NavigationState = { frames: [] };
+  registerSessionNavigation(pi.api, navigationState);
   registerSubagentCommands(pi.api, { agentDir });
   t.after(() => {
     pi.events.emit("permissions:ui_prompt", {});
@@ -36,7 +38,7 @@ async function fixture(t: TestContext, options: ContextOptions = {}) {
   const render = () => ui.interactions.at(-1)!.component!.render(180).map(stripTerminalSequences).join("\n");
   const press = (key: string) => ui.interactions.at(-1)!.component!.handleInput!(key);
   return {
-    pi, ui, ctx, invoke, render, press, agentDir, project, projectAgents, userFile,
+    pi, ui, ctx, invoke, render, press, agentDir, project, projectAgents, userFile, navigationState,
     notifications: mock.notifications,
   };
 }
@@ -141,7 +143,7 @@ test("the command remains usable while busy and inside an inspection-only sessio
     entries: [{ type: "custom", customType: "active_agent", data: { name: "worker" } }],
   });
   await writeAgentFile(path.join(f.agentDir, "agents"), "worker.md", agentMarkdown({ name: "worker", description: "d" }));
-  registerActiveAgentMarker(f.pi.api, {});
+  registerActiveAgentMarker(f.pi.api, {}, f.navigationState);
   await f.pi.emitLifecycle("session_start", f.ctx);
   const opening = f.invoke();
   await flushPromises();
