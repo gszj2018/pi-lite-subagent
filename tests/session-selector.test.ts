@@ -48,9 +48,11 @@ test("selector uses injected keys and fits narrow, short and resized terminals",
       assert.ok(rendered.length <= Math.max(1, Math.min(Math.floor(rows * 0.8), rows - 2)));
     }
   }
-  ui.backgroundColor = 45;
+  ui.color = 35;
   selector.invalidate();
-  assert.ok(selector.render(100).join("\n").includes("\x1b[45m"));
+  const changed = selector.render(100).join("\n");
+  assert.ok(changed.includes("\x1b[35m"));
+  assert.ok(!changed.includes("\x1b[36m"));
   selector.handleInput("j"); selector.handleInput(" ");
   assert.deepEqual(results, ["file-1"]);
 });

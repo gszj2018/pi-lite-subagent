@@ -1,8 +1,8 @@
 /** Inline, selection-only session picker. No permission-prompt subscription or session mutation. */
 
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, type KeybindingsManager, matchesKey, SelectList, Text,
-  type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+  type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import { singleLineLabel } from "./subagent-browser.ts";
 import type { SubagentSession } from "./subagent-sessions.ts";
 
@@ -24,43 +24,48 @@ export class SubagentSessionSelector implements Component {
 
   render(width: number): string[] {
     if (this.disposed || width < 1) return [];
-    const compact = () => [truncateToWidth("Window too small · Ctrl+C: close", width, "")];
+    const compact = () => [truncateToWidth(this.theme.fg("muted", "Window too small · Ctrl+C: close"), width, "")];
     if (width < 3) return compact();
     const innerWidth = width - 2;
+    const keyLabels: Record<string, string> = {
+      up: "↑", down: "↓", pageUp: "PgUp", pageDown: "PgDn", enter: "Enter", return: "Enter",
+      escape: "Esc", esc: "Esc", space: "Space",
+    };
     const keys = (action: Parameters<KeybindingsManager["getKeys"]>[0]) =>
-      this.keybindings.getKeys(action).filter((key) => key !== Key.ctrl("c")).join("/");
-    const help = new Text(this.theme.fg("dim", [
-      `${keys("tui.select.up")}/${keys("tui.select.down")}: navigate`,
-      `${keys("tui.select.pageUp")}/${keys("tui.select.pageDown")}: page`,
-      `${keys("tui.select.confirm")}: open`, `${keys("tui.select.cancel")}: cancel`, "Ctrl+C: close",
-    ].join(" · ")), 0, 0).render(innerWidth);
+      this.keybindings.getKeys(action).filter((key) => key !== Key.ctrl("c"))
+        .map((key) => keyLabels[key] ?? key).join("/") || "(unbound)";
+    const hint = (key: string, description: string) =>
+      this.theme.fg("dim", key) + this.theme.fg("muted", ` ${description}`);
+    const help = new Text([
+      hint(`${keys("tui.select.up")}/${keys("tui.select.down")}`, "navigate"),
+      hint(`${keys("tui.select.pageUp")}/${keys("tui.select.pageDown")}`, "page"),
+      hint(keys("tui.select.confirm"), "open"), hint(keys("tui.select.cancel"), "cancel"), hint("Ctrl+C", "close"),
+    ].join("  "), 0, 0).render(innerWidth);
     const height = Math.max(1, Math.min(Math.floor(this.tui.terminal.rows * 0.8), this.tui.terminal.rows - 2));
-    const available = height - help.length - 6;
+    // Two horizontal borders, a title, four spacers, and at most one native list information row.
+    const available = height - help.length - 8;
     if (available < 1) return compact();
     this.pageSize = Math.max(1, Math.min(10, available, this.sessions.length));
-    const list = new SelectList(this.sessions.map((session) => ({
-      value: session.file,
-      label: this.theme.fg("accent", singleLineLabel(session.agent)) + ` · ${singleLineLabel(session.fileName)}`,
-    })), this.pageSize, {
+    const list = new SelectList(this.sessions.map((session, index) => {
+      const label = `${singleLineLabel(session.agent)} · ${singleLineLabel(session.fileName)}`;
+      return {
+        value: session.file,
+        label: index === this.selectedIndex ? label : this.theme.fg("text", label),
+      };
+    }), this.pageSize, {
       selectedPrefix: (text) => this.theme.fg("accent", text),
-      selectedText: (text) => {
-        const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(text)));
-        return this.theme.bg("selectedBg", text) + this.theme.bg("selectedBg", padding);
-      },
+      selectedText: (text) => this.theme.fg("accent", text),
       description: (text) => this.theme.fg("muted", text),
       scrollInfo: (text) => this.theme.fg("dim", text),
       noMatch: (text) => this.theme.fg("muted", text),
     });
     list.setSelectedIndex(this.selectedIndex);
     const body = list.render(innerWidth);
-    if (this.sessions.length <= this.pageSize) body.push("");
-    const border = (text: string) => this.theme.fg("border", text);
-    const row = (text: string) => border("│") + truncateToWidth(text, innerWidth, "", true) + border("│");
-    const separator = () => border(`├${"─".repeat(innerWidth)}┤`);
+    const [border] = new DynamicBorder((text) => this.theme.fg("border", text)).render(width);
+    const row = (text: string) => " " + truncateToWidth(text, innerWidth, "");
     return [
-      border(`┌${"─".repeat(innerWidth)}┐`),
-      row(this.theme.fg("accent", "Subagent sessions")), separator(),
-      ...body.map(row), separator(), ...help.map(row), border(`└${"─".repeat(innerWidth)}┘`),
+      border, "", row(this.theme.fg("accent", this.theme.bold("Subagent sessions"))), "",
+      ...body.map(row), "", ...help.map(row), "", border,
     ];
   }
 
