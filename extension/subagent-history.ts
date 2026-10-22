@@ -171,7 +171,7 @@ function buildTasks(calls: HistoryCall[], results: ReadonlyMap<string, CallSnaps
         id: `${call.id}:${index}`, toolCallId: call.id, index, mode: call.mode, ...task,
         status, result, callOutput: snapshot?.output ?? "",
       };
-    });
+    }).reverse();
   });
 }
 

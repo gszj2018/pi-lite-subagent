@@ -45,7 +45,8 @@ function definitionContent(agentDir: string, cwd: string, trusted: boolean): Bro
     emptyMessage: `No subagent definitions found [${range}].`,
     items: [...user, ...project].map((agent) => ({
       id: `${agent.source}:${agent.filePath}`,
-      label: `${agent.name} (${agent.source}) · ${agent.description}`,
+      label: `${agent.name} (${agent.source})`,
+      description: agent.description,
       createDetail: (theme) => definitionDetail(agent, theme),
     })),
   };
@@ -87,8 +88,8 @@ function historyContent(tasks: HistoryTask[]): BrowserContent {
       const status = task.status === "Completed" ? "" : ` (${task.status})`;
       return {
         id: task.id,
-        label: `${task.agent}${status} · ${
-          task.mode === "chain" ? task.task.replace(/\{previous\}/g, "").trim() : task.task}`,
+        label: `${task.agent}${status}`,
+        description: task.mode === "chain" ? task.task.replace(/\{previous\}/g, "").trim() : task.task,
         createDetail: (theme) => historyDetail(task, theme),
       };
     }),

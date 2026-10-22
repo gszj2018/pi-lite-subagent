@@ -4,15 +4,15 @@ import { collectSubagentHistory, registerSubagentHistory } from "../extension/su
 import { callEntry, resultEntry, singleResult, task } from "./helpers/history-fixture.ts";
 import { createContext, MockPi } from "./helpers/mocks.ts";
 
-test("history orders calls newest first, including calls in one message, but preserves task order", () => {
+test("history orders both calls and their tasks newest first, including calls in one message", () => {
   const older = callEntry("older", [task("same", "repeat"), task("same", "repeat")]);
   const newer = callEntry("newer", [task("worker", "first"), task("worker", "second")]);
   newer.message.content.push(callEntry("last").message.content[0]);
   const branch = [older, { type: "compaction" }, newer, resultEntry("older", [], { isError: true, text: "blocked" })];
   const before = JSON.stringify(branch);
   const history = collectSubagentHistory(branch);
-  assert.deepEqual(history.map((item) => item.id), ["last:0", "newer:0", "newer:1", "older:0", "older:1"]);
-  assert.deepEqual(history.map((item) => item.task), ["task", "first", "second", "repeat", "repeat"]);
+  assert.deepEqual(history.map((item) => item.id), ["last:0", "newer:1", "newer:0", "older:1", "older:0"]);
+  assert.deepEqual(history.map((item) => item.task), ["task", "second", "first", "repeat", "repeat"]);
   assert.equal(history[3].status, "Not executed");
   assert.equal(history[3].callOutput, "blocked");
   assert.equal(JSON.stringify(branch), before, "history extraction never mutates the branch");
@@ -37,10 +37,11 @@ test("chain results align by step, retain original tasks and mark unexecuted lat
       singleResult({ step: 1 }),
     ], { mode: "chain", isError: true }),
   ]);
-  assert.deepEqual(history.map((item) => item.status), ["Completed", "Failed", "Skipped"]);
+  assert.deepEqual(history.map((item) => item.status), ["Skipped", "Failed", "Completed"]);
+  assert.deepEqual(history.map((item) => item.index), [2, 1, 0]);
   assert.equal(history[1].task, "use {previous}");
   assert.equal(history[1].result?.task, "use actual output");
-  assert.equal(history[2].result, undefined);
+  assert.equal(history[0].result, undefined);
 });
 
 test("result statuses distinguish failures, abortion, unfinished history and missing details", () => {
@@ -76,13 +77,13 @@ test("malformed entries and result holes cannot shift another task's result into
     { type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read", id: "other" }] } },
   ]);
   assert.equal(history.length, 2);
-  assert.equal(history[0].agent, "unknown");
-  assert.equal(history[0].status, "Result details unavailable");
-  assert.equal(history[1].status, "Completed");
-  assert.deepEqual(history[1].result?.items, [{ type: "text", text: "valid" }]);
-  assert.equal(history[1].result?.usage.input, 0);
-  assert.equal(history[1].result?.usage.output, 0);
-  assert.equal(history[1].result?.usage.cost, 0);
+  assert.equal(history[1].agent, "unknown");
+  assert.equal(history[1].status, "Result details unavailable");
+  assert.equal(history[0].status, "Completed");
+  assert.deepEqual(history[0].result?.items, [{ type: "text", text: "valid" }]);
+  assert.equal(history[0].result?.usage.input, 0);
+  assert.equal(history[0].result?.usage.output, 0);
+  assert.equal(history[0].result?.usage.cost, 0);
   const mismatch = collectSubagentHistory([
     callEntry("x"), resultEntry("x", [singleResult({ agent: "another-agent" })]),
   ]);
@@ -178,7 +179,7 @@ test("chain live history exposes not-started tasks and settlement does not leave
   await pi.emitLifecycle("tool_execution_update", ctx, {
     ...event, partialResult: resultEntry("c", [singleResult({ exitCode: undefined, step: 1 })], { mode: "chain" }).message,
   });
-  assert.deepEqual(history.read(ctx).map((item) => item.status), ["Pending / running", "Not started"]);
+  assert.deepEqual(history.read(ctx).map((item) => item.status), ["Not started", "Pending / running"]);
   await pi.emitLifecycle("agent_settled", ctx);
   assert.deepEqual(history.read(ctx).map((item) => item.status), ["Unknown / interrupted", "Unknown / interrupted"]);
 });

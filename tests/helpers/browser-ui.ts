@@ -34,7 +34,7 @@ export class BrowserUI {
   beforeMount?: () => void;
   readonly keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
   readonly theme = {
-    fg: (_name: string, text: string) => `\x1b[${this.color}m${text}\x1b[39m`,
+    fg: (name: string, text: string) => `\x1b[${name === "accent" ? this.color : 90}m${text}\x1b[39m`,
     bg: (_name: string, text: string) => text,
     bold: (text: string) => text,
   } as unknown as Theme;

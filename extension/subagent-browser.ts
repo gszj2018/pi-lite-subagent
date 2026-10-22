@@ -17,6 +17,7 @@ import {
 export interface BrowserItem {
   id: string;
   label: string;
+  description?: string;
   createDetail(theme: Theme): Component;
 }
 
@@ -109,11 +110,15 @@ export class SubagentBrowser implements Component {
     if (!this.list || visible !== this.listHeight) {
       this.listHeight = visible;
       this.list = new SelectList(
-        this.content.items.map((item) => ({ value: item.id, label: singleLineLabel(item.label) })),
+        this.content.items.map((item) => ({
+          value: item.id,
+          label: this.theme.fg("accent", singleLineLabel(item.label)) +
+            (item.description === undefined ? "" : ` · ${singleLineLabel(item.description)}`),
+        })),
         visible,
         {
           selectedPrefix: (text) => this.theme.fg("accent", text),
-          selectedText: (text) => this.theme.fg("accent", text),
+          selectedText: (text) => text,
           description: (text) => this.theme.fg("muted", text),
           scrollInfo: (text) => this.theme.fg("dim", text),
           noMatch: (text) => this.theme.fg("muted", text),
@@ -174,7 +179,9 @@ export class SubagentBrowser implements Component {
       if (!list) return compact();
       lines.push(...list.map(row));
     } else {
-      const selectedLabel = singleLineLabel(this.selected?.label ?? "");
+      const selected = this.selected;
+      const selectedLabel = selected ? singleLineLabel(selected.description === undefined
+        ? selected.label : `${selected.label} · ${selected.description}`) : "";
       lines.push(row(this.theme.fg("accent", selectedLabel)), separator());
       this.viewportHeight = available;
       this.scrollTop = Math.min(this.scrollTop, Math.max(0, body.length - this.viewportHeight));

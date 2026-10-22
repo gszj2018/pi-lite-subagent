@@ -67,6 +67,34 @@ test("labels remove terminal sequences and flatten control characters without lo
   assert.equal(singleLineLabel("\x1b]8;;https://example.test\x07label\x1b]8;;\x07"), "label");
 });
 
+test("list headings use accent without coloring descriptions, including after selection and theme changes", () => {
+  const ui = new BrowserUI();
+  const data = content(2);
+  data.items[0].label = "worker\x1b[31m (Failed)\x1b[0m";
+  data.items[0].description = "task\x1b[32m one\x1b[0m\nnext";
+  data.items[1].label = "审阅者 (user)";
+  data.items[1].description = "definition two";
+  const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
+  const assertColors = () => {
+    const raw = browser.render(100).join("\n");
+    assert.ok(raw.includes(`${ui.theme.fg("accent", "worker (Failed)")} · task one next`));
+    assert.ok(raw.includes(`${ui.theme.fg("accent", "审阅者 (user)")} · definition two`));
+    assert.doesNotMatch(raw, /\x1b\[31m|\x1b\[32m/);
+  };
+  assertColors();
+  browser.handleInput(keys.down);
+  assertColors();
+  ui.color = 35;
+  browser.invalidate();
+  assertColors();
+  assert.ok(!browser.render(100).join("\n").includes("\x1b[36m"));
+  for (const width of [80, 28, 12]) {
+    for (const line of browser.render(width)) assert.ok(visibleWidth(line) <= width);
+  }
+  browser.handleInput(keys.enter);
+  assert.match(plain(browser).join("\n"), /审阅者 \(user\) · definition two/);
+});
+
 test("native list scroll information is preserved between a separate title and footer", () => {
   const ui = new BrowserUI();
   ui.terminal.rows = 15;

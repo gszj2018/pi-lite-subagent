@@ -53,7 +53,11 @@ test("list-subagents keeps same-name user and project agents, grouped in stable 
   const list = f.render();
   assert.match(list, /Subagent definitions \[user \+ project\]/);
   const names = ["alpha (user)", "shared (user)", "zeta (user)", "beta (project)", "shared (project)"];
-  for (const name of names) assert.ok(list.includes(name), name);
+  const raw = f.ui.interactions.at(-1)!.component!.render(180).join("\n");
+  for (const name of names) {
+    assert.ok(list.includes(name), name);
+    assert.ok(raw.includes(`${f.ui.theme.fg("accent", name)} · `), `missing accent for ${name}`);
+  }
   assert.deepEqual(names.map((name) => list.indexOf(name)), names.map((name) => list.indexOf(name)).sort((a, b) => a - b));
   assert.doesNotMatch(list, /invalid \(project\)/, "discovery's invalid-definition filtering is preserved");
   assert.deepEqual([...f.pi.commands.keys()], ["list-subagents", "view-subagents"], "session navigation stays deferred");

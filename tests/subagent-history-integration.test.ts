@@ -51,10 +51,9 @@ test("integration: view-subagents lists only active-branch tasks in recent-call 
   const opening = f.invoke();
   await flushPromises();
   const list = f.render();
-  assert.ok(list.indexOf("worker · produce") < list.indexOf("worker · consume"));
-  assert.ok(list.indexOf("worker · consume") < list.indexOf("worker · old task"));
+  assert.ok(list.indexOf("worker · consume") < list.indexOf("worker · produce"));
+  assert.ok(list.indexOf("worker · produce") < list.indexOf("worker · old task"));
   assert.doesNotMatch(list, /\{previous\}|hidden-agent|hidden history|\(Completed\)/);
-  f.press("\x1b[B");
   f.press("\r");
   const detail = f.render();
   assert.match(detail, /Status: Completed/);
@@ -88,14 +87,18 @@ test("integration: every non-completed status follows the agent name with one se
   const opening = f.invoke();
   await flushPromises();
   const list = f.render();
+  const raw = f.ui.interactions.at(-1)!.component!.render(160).join("\n");
   for (const [status, prompt] of [
     ["Failed", "failed"], ["Aborted", "aborted"], ["Not executed", "blocked"],
     ["Unknown / interrupted", "unknown"], ["Result details unavailable", "missing"],
     ["Skipped", "skipped"], ["Pending / running", "active"], ["Not started", "queued"],
   ]) {
-    assert.ok(list.includes(`worker (${status}) · ${prompt}`), `missing label for ${status}`);
+    const label = `worker (${status})`;
+    assert.ok(list.includes(`${label} · ${prompt}`), `missing label for ${status}`);
+    assert.ok(raw.includes(`${f.ui.theme.fg("accent", label)} · ${prompt}`), `missing accent for ${status}`);
   }
   assert.match(list, /worker · completed/);
+  assert.ok(raw.includes(`${f.ui.theme.fg("accent", "worker")} · completed`));
   assert.doesNotMatch(list, /worker\s*\(Completed\)|worker\(/);
   f.press("\x03");
   await opening;
@@ -124,7 +127,7 @@ test("integration: parallel execution updates the selected task live and reconci
   await flushPromises();
   assert.match(f.render(), /worker \(Pending \/ running\) · first/);
   assert.match(f.render(), /worker \(Pending \/ running\) · second/);
-  f.press("\x1b[B");
+  assert.ok(f.render().indexOf("· second") < f.render().indexOf("· first"));
   f.press("\r");
   assert.match(f.render(), /Status: Pending \/ running/);
   spawnMock.procs[0].release();
@@ -222,12 +225,14 @@ test("integration: failed chain steps expose stderr and all later task slots rem
   assert.match(f.render(), /worker \(Skipped\) · last/);
   assert.match(f.render(), /worker \(Failed\) · task/);
   assert.doesNotMatch(f.render(), /\((?:Pending \/ running|Not started)\)/);
+  f.press("\x1b[B");
+  f.press("\x1b[B");
   f.press("\r");
   assert.match(f.render(), /Status: Failed/);
   assert.match(f.render(), /Stderr: child process failed/);
   f.press("\x1b");
-  f.press("\x1b[B");
-  f.press("\x1b[B");
+  f.press("\x1b[A");
+  f.press("\x1b[A");
   f.press("\r");
   assert.match(f.render(), /Status: Skipped/);
   assert.match(f.render(), /chain stopped/);
