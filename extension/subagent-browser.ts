@@ -11,6 +11,7 @@ import {
   Text,
   type TUI,
   truncateToWidth,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 
 export interface BrowserItem {
@@ -87,8 +88,10 @@ export class SubagentBrowser implements Component {
     return this.detailLines;
   }
 
-  private renderList(width: number, height: number): string[] {
-    const visible = Math.max(1, Math.min(height, this.content.items.length));
+  private renderList(width: number, height: number): string[] | undefined {
+    if (height < 2) return undefined;
+    // Always reserve one row for SelectList's scroll information or an empty placeholder.
+    const visible = Math.max(1, Math.min(height - 1, this.content.items.length));
     if (!this.list || visible !== this.listHeight) {
       this.listHeight = visible;
       this.list = new SelectList(
@@ -104,34 +107,75 @@ export class SubagentBrowser implements Component {
       );
     }
     this.list.setSelectedIndex(this.selectedIndex);
-    // SelectList's extra scroll-info row belongs in our title, not below the options.
-    return this.list.render(Math.max(1, width)).slice(0, visible);
+    const lines = this.list.render(width);
+    return this.content.items.length > visible ? lines : [...lines, ""];
+  }
+
+  private helpText(): string {
+    const key = (action: Parameters<KeybindingsManager["getKeys"]>[0]) => {
+      const names: Record<string, string> = {
+        up: "↑", down: "↓", pageUp: "PgUp", pageDown: "PgDn", enter: "Enter", return: "Enter",
+        escape: "Esc", esc: "Esc", space: "Space",
+      };
+      return this.keybindings.getKeys(action)
+        .filter((name) => action !== "tui.select.cancel" || name !== Key.ctrl("c"))
+        .map((name) => names[name] ?? name).join("/") || "(unbound)";
+    };
+    return [
+      `${key("tui.select.up")}/${key("tui.select.down")}: ${this.showingDetail ? "scroll" : "navigate"}`,
+      `${key("tui.select.pageUp")}/${key("tui.select.pageDown")}: page`,
+      this.showingDetail ? "Home/End: first/last" : `${key("tui.select.confirm")}: view`,
+      `${key("tui.select.cancel")}: ${this.showingDetail ? "back" : "close"}`,
+      "Ctrl+C: close",
+    ].join(" · ");
   }
 
   render(width: number): string[] {
     if (this.disposed || width < 1) return [];
     const height = this.height;
-    const title = `${singleLineLabel(this.content.title)} · ${this.selectedIndex + 1}/${this.content.items.length}` +
-      (this.showingDetail ? " · Esc: back" : "");
-    if (width < 3 || height < 3) {
-      return [truncateToWidth(this.theme.fg("accent", title), width, "")];
-    }
+    const compact = () => [truncateToWidth(this.theme.fg("muted", "Window too small · Ctrl+C: close"), width, "")];
+    if (width < 3) return compact();
 
     const innerWidth = width - 2;
+    const body = this.showingDetail ? this.getDetailLines(innerWidth) : [];
+    // Reserve a stable maximum range width so scrolling cannot change the footer/body height.
+    const rangeWidth = visibleWidth(`${body.length}–${body.length}/${body.length}`);
+    const showRange = this.showingDetail && innerWidth >= rangeWidth + 2 + 16;
+    const helpWidth = showRange ? innerWidth - rangeWidth - 2 : innerWidth;
+    const help = new Text(this.theme.fg("dim", this.helpText()), 0, 0).render(helpWidth);
+    // Borders/separators and the fixed title/footer are measured outside the content viewport.
+    const available = height - help.length - (this.showingDetail ? 7 : 5);
+    if (available < 1) return compact();
+
     const border = (text: string) => this.theme.fg("border", text);
     const row = (text: string) => border("│") + truncateToWidth(text, innerWidth, "", true) + border("│");
-    const lines = [border("╭") + truncateToWidth(this.theme.fg("accent", title), innerWidth, "", true) + border("╮")];
+    const separator = () => border(`├${"─".repeat(innerWidth)}┤`);
+    const lines = [
+      border(`┌${"─".repeat(innerWidth)}┐`),
+      row(this.theme.fg("accent", singleLineLabel(this.content.title))),
+      separator(),
+    ];
     if (!this.showingDetail) {
-      lines.push(...this.renderList(innerWidth, height - 2).map(row));
+      const list = this.renderList(innerWidth, available);
+      if (!list) return compact();
+      lines.push(...list.map(row));
     } else {
-      lines.push(row(this.theme.fg("accent", singleLineLabel(this.selected?.label ?? ""))));
-      this.viewportHeight = Math.max(0, height - 4);
-      if (height > 3) lines.push(border(`├${"─".repeat(innerWidth)}┤`));
-      const body = this.getDetailLines(innerWidth);
+      const selectedLabel = singleLineLabel(this.selected?.label ?? "");
+      lines.push(row(this.theme.fg("accent", selectedLabel)), separator());
+      this.viewportHeight = available;
       this.scrollTop = Math.min(this.scrollTop, Math.max(0, body.length - this.viewportHeight));
+      // This is the explicit body viewport, not removal of component-specific decoration rows.
       lines.push(...body.slice(this.scrollTop, this.scrollTop + this.viewportHeight).map(row));
+      if (showRange) {
+        const start = body.length === 0 ? 0 : this.scrollTop + 1;
+        const end = Math.min(body.length, this.scrollTop + this.viewportHeight);
+        const range = `${start}–${end}/${body.length}`;
+        const last = help.length - 1;
+        const gap = innerWidth - visibleWidth(help[last]) - visibleWidth(range);
+        help[last] += " ".repeat(Math.max(1, gap)) + this.theme.fg("dim", range);
+      }
     }
-    lines.push(border(`╰${"─".repeat(innerWidth)}╯`));
+    lines.push(separator(), ...help.map(row), border(`└${"─".repeat(innerWidth)}┘`));
     return lines;
   }
 

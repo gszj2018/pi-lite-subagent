@@ -31,6 +31,20 @@ function plain(browser: { render(width: number): string[] }, width = 100): strin
   return browser.render(width).map(stripTerminalSequences);
 }
 
+/** Split only the browser's own section boundaries, never a child component's row layout. */
+function sections(lines: string[]): string[][] {
+  const groups: string[][] = [[]];
+  for (const line of lines) {
+    if (line.startsWith("├")) groups.push([]);
+    else if (line.startsWith("│")) groups.at(-1)!.push(line);
+  }
+  return groups;
+}
+
+function hintText(rows: string[]): string {
+  return rows.map((line) => line.replace(/^│|│$/g, "").replace(/\d+–\d+\/\d+/g, "").trim()).join(" ");
+}
+
 function interaction(t: TestContext) {
   const pi = new MockPi();
   const ui = new BrowserUI();
@@ -53,29 +67,70 @@ test("labels remove terminal sequences and flatten control characters without lo
   assert.equal(singleLineLabel("\x1b]8;;https://example.test\x07label\x1b]8;;\x07"), "label");
 });
 
-test("the browser has a compact list and preserves its selected item after visiting details", () => {
+test("native list scroll information is preserved between a separate title and footer", () => {
   const ui = new BrowserUI();
   ui.terminal.rows = 15;
   let closes = 0;
   const browser = new SubagentBrowser(content(), ui.tui, ui.theme, ui.keybindings, () => { closes++; });
   const initial = plain(browser);
-  assert.match(initial[0], /user \+ project/);
-  assert.equal(initial.length, 12, "only title, ten option rows and bottom border are shown");
-  assert.doesNotMatch(initial.join("\n"), /line-1|navigate|select|cancel/);
+  const [title, list, help] = sections(initial);
+  assert.match(initial[0], /^┌─+┐$/);
+  assert.match(initial.at(-1)!, /^└─+┘$/);
+  assert.doesNotMatch(initial.join("\n"), /[╭╮╰╯]/);
+  assert.match(title[0], /user \+ project/);
+  assert.doesNotMatch(title[0], /1\/12|Esc:/);
+  assert.match(list.at(-1)!, /\(1\/12\)/, "SelectList's own information row remains visible");
+  assert.match(help.join("\n"), /navigate.*Enter: view.*Esc: close.*Ctrl\+C: close/);
+  assert.doesNotMatch(list.join("\n"), /line-1|navigate|Esc:/);
+  assert.equal(initial.length, 12, "the complete list and fixed regions fit the overlay height");
+  const pageSize = list.filter((line) => line.includes("agent-")).length;
   browser.handleInput(keys.pageDown);
   const selectedList = plain(browser);
-  assert.match(selectedList[0], /11\/12/);
+  assert.ok(selectedList.join("\n").includes(`(${pageSize + 1}/12)`));
   browser.handleInput(keys.enter);
-  const detail = plain(browser);
-  assert.match(detail[0], /Esc: back/);
-  assert.match(detail[1], /agent-10/);
-  assert.match(detail[3], /line-1\s/);
+  const detail = sections(plain(browser));
+  assert.deepEqual(detail[0], title);
+  assert.ok(detail[1][0].includes(`agent-${pageSize}`));
+  assert.match(detail[2][0], /line-1\s/);
+  assert.match(detail[3].join("\n"), /Esc: back.*Ctrl\+C: close/);
   browser.handleInput(keys.down);
-  assert.match(plain(browser)[1], /agent-10/, "detail arrows never select another item");
+  assert.deepEqual(sections(plain(browser))[1], detail[1], "detail arrows never select another item");
   browser.handleInput(keys.escape);
   assert.deepEqual(plain(browser), selectedList, "selection and centered list range are preserved");
   browser.handleInput(keys.escape);
   assert.equal(closes, 1);
+});
+
+test("a short list keeps a blank information slot and narrow footers wrap without losing help", () => {
+  const ui = new BrowserUI();
+  ui.terminal.rows = 40;
+  const browser = new SubagentBrowser(content(2), ui.tui, ui.theme, ui.keybindings, () => {});
+  const [title, list, help] = sections(plain(browser, 40));
+  assert.match(title[0], /Test browser/);
+  assert.equal(list.length, 3, "two options plus one reserved information row");
+  assert.match(list.at(-1)!, /^│\s*│$/);
+  assert.doesNotMatch(list.join("\n"), /\(\d+\/\d+\)/);
+  assert.ok(help.length > 1, "the help region wraps rather than clipping its final keys");
+  const helpText = help.map((line) => line.replace(/^│|│$/g, "").trim()).join(" ");
+  assert.match(helpText, /Ctrl\+C: close/);
+  assert.match(list[0], /→ agent-0/);
+  assert.match(list[1], /agent-1/);
+});
+
+test("resizing replaces the scroll information with a blank slot when all options fit", () => {
+  const ui = new BrowserUI();
+  ui.terminal.rows = 15;
+  const browser = new SubagentBrowser(content(6), ui.tui, ui.theme, ui.keybindings, () => {});
+  const scrolling = sections(plain(browser))[1];
+  assert.equal(scrolling.length, 6, "five options plus the native information row");
+  assert.match(scrolling.at(-1)!, /\(1\/6\)/);
+  ui.terminal.rows = 17;
+  const fitted = sections(plain(browser))[1];
+  assert.equal(fitted.length, 7, "six options plus a blank information slot");
+  assert.match(fitted.at(-1)!, /^│\s*│$/);
+  assert.doesNotMatch(fitted.join("\n"), /\(\d+\/\d+\)/);
+  ui.terminal.rows = 15;
+  assert.deepEqual(sections(plain(browser))[1], scrolling);
 });
 
 test("details scroll and page while their title and selected row stay fixed", () => {
@@ -84,22 +139,66 @@ test("details scroll and page while their title and selected row stay fixed", ()
   const browser = new SubagentBrowser(content(1), ui.tui, ui.theme, ui.keybindings, () => {});
   browser.handleInput(keys.enter);
   const start = plain(browser);
+  const startSections = sections(start);
+  const viewport = startSections[2].length;
   browser.handleInput(keys.down);
-  assert.match(plain(browser)[3], /line-2\s/);
+  assert.match(sections(plain(browser))[2][0], /line-2\s/);
   browser.handleInput(keys.up);
   assert.deepEqual(plain(browser), start);
   browser.handleInput(keys.pageDown);
   const page = plain(browser);
-  assert.deepEqual(page.slice(0, 3), start.slice(0, 3));
-  assert.match(page[3], /line-9\s/);
+  const pageSections = sections(page);
+  assert.deepEqual(pageSections[0], startSections[0]);
+  assert.deepEqual(pageSections[1], startSections[1]);
+  assert.equal(hintText(pageSections[3]), hintText(startSections[3]), "only the position changes in the footer");
+  assert.ok(pageSections[2][0].includes(`line-${viewport + 1} `));
   browser.handleInput(keys.pageUp);
   assert.deepEqual(plain(browser), start);
   browser.handleInput(keys.end);
-  assert.match(plain(browser).at(-2)!, /line-60\s/);
+  assert.match(sections(plain(browser))[2].at(-1)!, /line-60\s/);
   browser.handleInput(keys.home);
   assert.deepEqual(plain(browser), start);
   browser.handleInput(keys.up);
   assert.deepEqual(plain(browser), start, "scroll offsets cannot become negative");
+});
+
+test("only detail footers show a right-aligned visible-line range that follows scrolling and resize", () => {
+  const ui = new BrowserUI();
+  const browser = new SubagentBrowser(content(1), ui.tui, ui.theme, ui.keybindings, () => {});
+  assert.doesNotMatch(sections(plain(browser))[2].join("\n"), /\d+–\d+\/\d+/);
+  browser.handleInput(keys.enter);
+  const start = sections(plain(browser));
+  const viewport = start[2].length;
+  assert.ok(start[3].at(-1)!.endsWith(`1–${viewport}/60│`));
+  assert.doesNotMatch(start[0].join("\n"), /\d+–\d+\/\d+/);
+  browser.handleInput(keys.down);
+  const next = sections(plain(browser));
+  assert.ok(next[3].at(-1)!.endsWith(`2–${viewport + 1}/60│`));
+  assert.equal(next[2].length, viewport, "changing range digits cannot change the body viewport height");
+  browser.handleInput(keys.end);
+  assert.match(sections(plain(browser))[3].at(-1)!, /\d+–60\/60│$/);
+  ui.terminal.rows = 35;
+  const resized = sections(plain(browser, 60));
+  assert.ok(resized[3].length > 1);
+  const first = resized[2][0].match(/line-(\d+)/)![1];
+  const last = resized[2].at(-1)!.match(/line-(\d+)/)![1];
+  assert.ok(resized[3].at(-1)!.endsWith(`${first}–${last}/60│`));
+  assert.match(hintText(resized[3]), /Ctrl\+C: close/);
+  assert.doesNotMatch(sections(plain(browser, 25))[3].join("\n"), /\d+–\d+\/\d+/,
+    "very narrow footers retain help instead of the position indicator");
+  browser.handleInput(keys.escape);
+  assert.doesNotMatch(plain(browser).join("\n"), /\d+–\d+\/\d+/);
+});
+
+test("detail footer ranges handle an entirely visible or empty body", () => {
+  for (const [text, expected] of [["one\ntwo", "1–2/2"], ["", "0–0/0"]]) {
+    const ui = new BrowserUI();
+    const data = content(1);
+    data.items[0].createDetail = () => new Text(text, 0, 0);
+    const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
+    browser.handleInput(keys.enter);
+    assert.ok(sections(plain(browser))[3].at(-1)!.endsWith(`${expected}│`));
+  }
 });
 
 test("long labels are one line, and narrow or resized terminals never overflow", () => {
@@ -124,7 +223,7 @@ test("long labels are one line, and narrow or resized terminals never overflow",
   browser.handleInput(keys.end);
   plain(browser);
   ui.terminal.rows = 30;
-  assert.match(plain(browser).at(-2)!, /line-60\s/, "resizing clamps the body offset to its new viewport");
+  assert.match(sections(plain(browser))[2].at(-1)!, /line-60\s/, "resizing clamps the body offset to its new viewport");
 });
 
 test("detail layout is cached by width and rebuilt on theme invalidation", () => {
@@ -150,8 +249,9 @@ test("detail layout is cached by width and rebuilt on theme invalidation", () =>
   browser.invalidate();
   const changed = browser.render(50);
   assert.equal(created, 2);
-  assert.ok(changed[3].includes("\x1b[35m"));
-  assert.ok(!changed[3].includes("\x1b[36m"));
+  const changedBody = changed.find((line) => line.includes("theme-sensitive body"))!;
+  assert.ok(changedBody.includes("\x1b[35m"));
+  assert.ok(!changedBody.includes("\x1b[36m"));
   const requests = ui.renderRequests;
   browser.dispose();
   browser.handleInput(keys.down);
@@ -164,10 +264,11 @@ test("browser input uses the injected selection keybindings", () => {
   const kb = new KeybindingsManager(TUI_KEYBINDINGS, { "tui.select.down": "j", "tui.select.confirm": "space" });
   const browser = new SubagentBrowser(content(2), ui.tui, ui.theme, kb, () => {});
   browser.handleInput(keys.down);
-  assert.match(plain(browser)[0], /1\/2/);
+  assert.match(sections(plain(browser))[1][0], /→ agent-0/);
+  assert.match(sections(plain(browser))[2].join("\n"), /↑\/j: navigate.*Space: view/);
   browser.handleInput("j");
   browser.handleInput(" ");
-  assert.match(plain(browser)[1], /agent-1/);
+  assert.match(sections(plain(browser))[1][0], /agent-1/);
 });
 
 test("detail construction errors remain readable and allow returning to the list", () => {
