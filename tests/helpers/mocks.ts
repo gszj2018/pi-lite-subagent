@@ -7,14 +7,40 @@ import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@eare
 
 type LifecycleHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
+/** Synchronous cross-extension bus, isolated per MockPi instance. */
+export class MockEventBus {
+  private readonly handlers = new Map<string, Set<(data: unknown) => void>>();
+
+  on(channel: string, handler: (data: unknown) => void): () => void {
+    const listeners = this.handlers.get(channel) ?? new Set();
+    this.handlers.set(channel, listeners);
+    listeners.add(handler);
+    return () => { listeners.delete(handler); };
+  }
+
+  emit(channel: string, data: unknown): void {
+    for (const handler of [...(this.handlers.get(channel) ?? [])]) handler(data);
+  }
+
+  count(channel: string): number {
+    return this.handlers.get(channel)?.size ?? 0;
+  }
+}
+
 // noinspection JSUnusedGlobalSymbols
 export class MockPi {
   readonly handlers = new Map<string, Set<LifecycleHandler>>();
   readonly tools = new Map<string, any>();
+  readonly commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
+  readonly events = new MockEventBus();
   readonly entryRenderers = new Map<string, (entry: any, options: any, theme: any) => unknown>();
   readonly appendedEntries: { customType: string; data?: unknown }[] = [];
 
   readonly api = {
+    events: this.events,
+    registerCommand: (name: string, options: Parameters<ExtensionAPI["registerCommand"]>[1]) => {
+      this.commands.set(name, options);
+    },
     on: (event: string, handler: LifecycleHandler) => {
       let entries = this.handlers.get(event);
       if (!entries) {
@@ -63,6 +89,8 @@ export interface ContextOptions {
   mode?: ExtensionContext["mode"];
   model?: { provider: string; id: string };
   thinkingLevel?: ThinkingLevel;
+  idle?: boolean;
+  pendingMessages?: boolean;
 }
 
 export interface MockContext {
@@ -83,6 +111,8 @@ export function createContext(options: ContextOptions = {}): MockContext {
       getEntries: () => options.entries ?? [],
     },
     isProjectTrusted: () => options.trusted ?? false,
+    isIdle: () => options.idle ?? true,
+    hasPendingMessages: () => options.pendingMessages ?? false,
     model: options.model,
     thinkingLevel: options.thinkingLevel,
     ui: {
