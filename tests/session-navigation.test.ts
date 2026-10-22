@@ -6,10 +6,8 @@ import { test } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
 import { RETURN_STACK_ENV } from "../extension/env-vars.ts";
-import { MAX_RETURN_STACK_BYTES, parseNavigationState, registerSessionNavigation, serializeNavigationState,
-  type NavigationState, type ReturnFrame } from "../extension/session-navigation.ts";
-import type { SessionIdentity } from "../extension/session-paths.ts";
-import type { ProcessEnvLike } from "../extension/types.ts";
+import { MAX_RETURN_STACK_BYTES, parseNavigationState, registerSessionNavigation, serializeNavigationState } from "../extension/session-navigation.ts";
+import type { ProcessEnvLike, SessionIdentity, NavigationState, ReturnFrame } from "../extension/types.ts";
 import { createContext, MockPi } from "./helpers/mocks.ts";
 
 const identity = (id: string): SessionIdentity => ({ file: path.resolve("virtual-sessions", `${id}.jsonl`), id });

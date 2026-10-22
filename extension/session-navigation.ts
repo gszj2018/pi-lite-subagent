@@ -4,32 +4,14 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { RETURN_STACK_ENV } from "./env-vars.ts";
-import { isPathSafeSessionId, sameSession, type SessionIdentity } from "./session-paths.ts";
+import { isPathSafeSessionId, sameSession } from "./session-paths.ts";
 import { singleLineLabel } from "./subagent-browser.ts";
 import { showSubagentSessionSelector } from "./session-selector.ts";
 import { readSessionIdentity, scanSubagentSessions } from "./subagent-sessions.ts";
-import type { ProcessEnvLike } from "./types.ts";
+import type { ProcessEnvLike, SessionIdentity, NavigationState, NavigationPending, ReturnFrame } from "./types.ts";
 
 export const MAX_RETURN_STACK_BYTES = 4096;
 export const MAX_RETURN_STACK_DEPTH = 4;
-
-export interface ReturnFrame {
-  parent: SessionIdentity;
-  child: SessionIdentity;
-}
-
-export interface NavigationPending {
-  token: string;
-  operation: "push" | "pop";
-  from: SessionIdentity;
-  to: SessionIdentity;
-}
-
-export interface NavigationState {
-  version: 1;
-  frames: ReturnFrame[];
-  pending?: NavigationPending;
-}
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -3,8 +3,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { TestContext } from "node:test";
-import { subagentSessionDir, type SessionIdentity } from "../../extension/session-paths.ts";
+import { subagentSessionDir } from "../../extension/session-paths.ts";
 import { makeTempDir } from "./agents-fixture.ts";
+import type { SessionIdentity } from "../../extension/types.ts";
 
 export const SESSION_TIME = "2026-10-20T10:00:00.000Z";
 

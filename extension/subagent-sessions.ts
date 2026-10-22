@@ -5,7 +5,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { ACTIVE_AGENT_ENTRY_TYPE } from "./active-agent.ts";
-import { isInsideDirectory, isPathSafeSessionId, type SessionIdentity, subagentSessionDir } from "./session-paths.ts";
+import { isInsideDirectory, isPathSafeSessionId, subagentSessionDir } from "./session-paths.ts";
+import type { SessionIdentity } from "./types.ts";
 
 export const MAX_SESSION_METADATA_BYTES = 8 * 1024 * 1024;
 export const SESSION_METADATA_CONCURRENCY = 4;

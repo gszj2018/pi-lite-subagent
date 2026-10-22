@@ -19,11 +19,18 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentScope, discoverAgents } from "./agents.ts";
+import { discoverAgents } from "./agents.ts";
 import { emptyUsageStats, getFinalOutput, getResultOutput, isFailedResult, runSingleAgent } from "./run-agent.ts";
 import { appendDisplayItems, type DisplayItem, formatToolCall, formatUsageStats, getDisplayItems } from "./subagent-rendering.ts";
 import { truncateSubagentOutput } from "./truncation.ts";
-import type { DispatchDefaults, OnUpdateCallback, SingleResult, SubagentDetails, SubagentRunnerDeps } from "./types.ts";
+import type {
+  DispatchDefaults,
+  OnUpdateCallback,
+  SingleResult,
+  SubagentDetails,
+  SubagentRunnerDeps,
+  AgentScope
+} from "./types.ts";
 
 const MAX_TASKS = 8;
 const MAX_CONCURRENCY = 4;

@@ -8,7 +8,6 @@
 import type { spawn } from "node:child_process";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
-import type { AgentScope } from "./agents.ts";
 
 /** Compatible with `node:child_process.spawn`; index.ts injects the real implementation, tests inject a mock. */
 export type SpawnFunction = typeof spawn;
@@ -84,6 +83,8 @@ export interface SingleResult {
   step?: number;
 }
 
+export type AgentScope = "user" | "project" | "both";
+
 /** Structured details attached to the tool result, used for TUI rendering and state reconstruction. */
 export interface SubagentDetails {
   mode: "parallel" | "chain";
@@ -94,3 +95,26 @@ export interface SubagentDetails {
 
 /** Streaming update callback for a running tool call. */
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+export interface SessionIdentity {
+  file: string;
+  id: string;
+}
+
+export interface ReturnFrame {
+  parent: SessionIdentity;
+  child: SessionIdentity;
+}
+
+export interface NavigationPending {
+  token: string;
+  operation: "push" | "pop";
+  from: SessionIdentity;
+  to: SessionIdentity;
+}
+
+export interface NavigationState {
+  version: 1;
+  frames: ReturnFrame[];
+  pending?: NavigationPending;
+}
