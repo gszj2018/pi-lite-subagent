@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import type { AgentConfig } from "../extension/agents.ts";
@@ -7,13 +8,7 @@ import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.t
 import { buildPiArgs, getPiInvocation, isPathSafeSessionId, runSingleAgent } from "../extension/run-agent.ts";
 import type { InheritedExtensionArgs, SingleResult, SubagentDetails, SubagentRunnerDeps } from "../extension/types.ts";
 import { makeTempDir, withTempUserAgents } from "./helpers/agents-fixture.ts";
-import {
-  MockSpawn,
-  assistantMessage,
-  basicUsage,
-  messageEndEvent,
-  toolResultEvent,
-} from "./helpers/mock-spawn.ts";
+import { MockSpawn, assistantMessage, basicUsage, messageEndEvent, toolResultEvent } from "./helpers/mock-spawn.ts";
 import { createContext, flushPromises } from "./helpers/mocks.ts";
 
 const noExtensionArgs: InheritedExtensionArgs = { extensions: [], noExtensions: false };
@@ -310,18 +305,25 @@ test("getPiInvocation resolves the launch from injected inputs", async (t) => {
     { command: "pi", args: ["a"] },
   );
 
-  // Windows-style generic runtime name.
-  assert.deepEqual(
-    getPiInvocation({ execPath: "C:\\runtime\\node.exe", piScriptPath: undefined, args: ["a"] }),
-    { command: "pi", args: ["a"] },
-  );
-
   // Non-generic runtime binary: invoke it directly without a script.
   assert.deepEqual(
     getPiInvocation({ execPath: "/fake/bin/pi-bin", args: ["a"] }),
     { command: "/fake/bin/pi-bin", args: ["a"] },
   );
 });
+
+test("getPiInvocation Windows specific case", async (t) => {
+  if (os.platform() !== "win32") {
+    t.skip("Windows-style path test require Windows platform.");
+    return
+  }
+
+  // Windows-style generic runtime name.
+  assert.deepEqual(
+    getPiInvocation({ execPath: "C:\\runtime\\node.exe", piScriptPath: undefined, args: ["a"] }),
+    { command: "pi", args: ["a"] },
+  );
+})
 
 test("runSingleAgent spawns with the built child env", async (t) => {
   const { agentDir, projectDir } = await withTempUserAgents(t);
