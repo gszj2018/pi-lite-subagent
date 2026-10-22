@@ -1,8 +1,6 @@
 /** History commands assembled with fake host events, a fake terminal and optionally MockSpawn. */
 
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
@@ -16,14 +14,13 @@ import { assistantMessage, messageEndEvent, MockSpawn } from "./helpers/mock-spa
 import { createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 
 async function setup(t: TestContext, branch: unknown[], mode: "tui" | "rpc" | "json" | "print" = "tui") {
-  const { agentDir } = await withTempUserAgents(t);
-  await fs.promises.mkdir(path.join(agentDir, ".pi", "agents"), { recursive: true });
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const pi = new MockPi();
   const ui = new BrowserUI();
   ui.terminal.rows = 50;
   const mock = createContext({
     branch, entries: [callEntry("abandoned", [task("hidden-agent", "hidden history")])],
-    cwd: agentDir, idle: false, pendingMessages: true, mode,
+    cwd: projectDir, idle: false, pendingMessages: true, mode,
   });
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;

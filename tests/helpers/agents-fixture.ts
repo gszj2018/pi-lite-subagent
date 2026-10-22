@@ -32,22 +32,25 @@ export async function writeAgentFile(dir: string, fileName: string, content: str
 }
 
 /**
- * Real temp user-agent directory fixture: `agentDir` is passed explicitly to the
- * code under test (never via the environment); the fixture cleans up after itself.
+ * Real temp user-agent and sibling project directories. Pass `agentDir` explicitly
+ * (never via the environment) and use `projectDir` as cwd; both are cleaned up together.
  * Agent files default to one `worker` agent with an empty system prompt.
  */
 export async function withTempUserAgents(
   t: TestContext,
   agents: Record<string, string> = { "worker.md": agentMarkdown({ name: "worker", description: "d" }, "") },
-): Promise<{ agentDir: string }> {
+): Promise<{ agentDir: string; projectDir: string }> {
   const tmp = await makeTempDir("pi-lite-agents-");
   t.after(tmp.cleanup);
   const agentDir = path.join(tmp.dir, "agent-dir");
   const userAgents = path.join(agentDir, "agents");
+  const projectDir = path.join(tmp.dir, "project");
+  await fs.promises.mkdir(userAgents, { recursive: true });
+  await fs.promises.mkdir(path.join(projectDir, ".pi", "agents"), { recursive: true });
   for (const [fileName, content] of Object.entries(agents)) {
     await writeAgentFile(userAgents, fileName, content);
   }
-  return { agentDir };
+  return { agentDir, projectDir };
 }
 
 export interface AgentFileFields {

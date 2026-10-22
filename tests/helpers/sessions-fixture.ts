@@ -1,4 +1,4 @@
-/** Persisted-session fixtures stay inside one self-cleaning temporary directory. */
+/** Sessions live under an isolated agentDir, alongside a sibling projectDir, in one self-cleaning temp tree. */
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -24,17 +24,20 @@ export function sessionText(id: string, cwd: string, options: {
 export async function withTempSessions(t: TestContext) {
   const tmp = await makeTempDir("pi-lite-sessions-");
   t.after(tmp.cleanup);
-  const cwd = await fs.realpath(tmp.dir);
-  const root = path.join(cwd, "sessions");
-  await fs.mkdir(root);
-  const parent: SessionIdentity = { file: path.join(root, "parent.jsonl"), id: "parent" };
-  await fs.writeFile(parent.file, sessionText(parent.id, cwd));
+  const baseDir = await fs.realpath(tmp.dir);
+  const agentDir = path.join(baseDir, "agent-dir");
+  const projectDir = path.join(baseDir, "project");
+  const sessionDir = path.join(agentDir, "sessions");
+  await fs.mkdir(sessionDir, { recursive: true });
+  await fs.mkdir(projectDir);
+  const parent: SessionIdentity = { file: path.join(sessionDir, "parent.jsonl"), id: "parent" };
+  await fs.writeFile(parent.file, sessionText(parent.id, projectDir));
   const child = async (owner = parent, id = "child", options: Parameters<typeof sessionText>[2] = {}) => {
     const directory = subagentSessionDir(path.dirname(owner.file), owner.id)!;
     await fs.mkdir(directory, { recursive: true });
     const identity = { file: path.join(directory, `${id}.jsonl`), id };
-    await fs.writeFile(identity.file, sessionText(id, cwd, options));
+    await fs.writeFile(identity.file, sessionText(id, projectDir, options));
     return identity;
   };
-  return { cwd, root, parent, child };
+  return { agentDir, projectDir, sessionDir, parent, child };
 }

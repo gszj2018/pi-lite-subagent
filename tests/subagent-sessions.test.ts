@@ -26,11 +26,11 @@ test("discovery reads only ordinary direct jsonl files and sorts by creation met
   const directory = path.dirname(older.file);
   await fs.utimes(older.file, new Date("2030-01-01"), new Date("2030-01-01"));
   await fs.utimes(newer.file, new Date("2020-01-01"), new Date("2020-01-01"));
-  await fs.writeFile(path.join(directory, "ignore.txt"), sessionText("ignored", f.cwd));
+  await fs.writeFile(path.join(directory, "ignore.txt"), sessionText("ignored", f.projectDir));
   await fs.mkdir(path.join(directory, "nested.jsonl"));
-  await fs.writeFile(path.join(directory, "nested.jsonl", "hidden.jsonl"), sessionText("hidden", f.cwd));
+  await fs.writeFile(path.join(directory, "nested.jsonl", "hidden.jsonl"), sessionText("hidden", f.projectDir));
   const before = await fs.readFile(older.file);
-  const scan = await scanSubagentSessions(f.root, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
   assert.deepEqual(scan.sessions.map((session) => [session.header?.id, session.agent]), [
     ["newer", "reviewer"], ["older", "worker"],
   ]);
@@ -51,7 +51,7 @@ test("malformed, missing-marker, empty and oversized files retain bounded metada
   await fs.writeFile(path.join(directory, "empty.jsonl"), "");
   const fallback = "2026-10-21T01-02-03-004Z_invalid.jsonl";
   await fs.writeFile(path.join(directory, fallback), "{broken header\n");
-  const scan = await scanSubagentSessions(f.root, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
   assert.equal(scan.sessions.length, 5);
   assert.equal(scan.degraded, 5);
   assert.ok(scan.sessions.every((session) => session.agent === "unknown"));
@@ -65,10 +65,10 @@ test("malformed, missing-marker, empty and oversized files retain bounded metada
 test("unsafe persistence and absent child directories fail without creating anything", async (t) => {
   const f = await withTempSessions(t);
   await assert.rejects(scanSubagentSessions("", f.parent), /persistent/);
-  await assert.rejects(scanSubagentSessions(f.root, { ...f.parent, id: "../unsafe" }), /persistent/);
-  await assert.rejects(scanSubagentSessions(f.root, f.parent));
-  await assert.rejects(fs.stat(path.join(f.root, "lite-subagent")), { code: "ENOENT" });
-  await assert.rejects(scanSubagentSessions(f.root, { ...f.parent, id: "wrong-id" }), /different session id/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, { ...f.parent, id: "../unsafe" }), /persistent/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, f.parent));
+  await assert.rejects(fs.stat(path.join(f.sessionDir, "lite-subagent")), { code: "ENOENT" });
+  await assert.rejects(scanSubagentSessions(f.sessionDir, { ...f.parent, id: "wrong-id" }), /different session id/);
 });
 
 test("symbolic-link files are excluded and cannot be selected directly", async (t) => {
@@ -81,7 +81,7 @@ test("symbolic-link files are excluded and cannot be selected directly", async (
     if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("File symlinks require platform privileges."); return; }
     throw error;
   }
-  const scan = await scanSubagentSessions(f.root, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
   assert.deepEqual(scan.sessions.map((session) => session.header?.id), ["ordinary"]);
   assert.equal(scan.skipped, 1);
   await assert.rejects(readSessionIdentity(link, scan.directory), /ordinary/);
@@ -89,21 +89,21 @@ test("symbolic-link files are excluded and cannot be selected directly", async (
 
 test("a child-directory junction cannot escape the expected session storage root", async (t) => {
   const f = await withTempSessions(t);
-  const outside = path.join(f.cwd, "outside");
+  const outside = path.join(f.agentDir, "outside");
   await fs.mkdir(outside);
-  await fs.writeFile(path.join(outside, "unrelated.jsonl"), sessionText("unrelated", f.cwd));
-  await fs.mkdir(path.join(f.root, "lite-subagent"));
-  const candidate = path.join(f.root, "lite-subagent", f.parent.id);
+  await fs.writeFile(path.join(outside, "unrelated.jsonl"), sessionText("unrelated", f.projectDir));
+  await fs.mkdir(path.join(f.sessionDir, "lite-subagent"));
+  const candidate = path.join(f.sessionDir, "lite-subagent", f.parent.id);
   await fs.symlink(outside, candidate, "junction");
-  await assert.rejects(scanSubagentSessions(f.root, f.parent), /escapes/);
+  await assert.rejects(scanSubagentSessions(f.sessionDir, f.parent), /escapes/);
 });
 
 test("selection revalidation rejects removal, wrong directory and changed headers", async (t) => {
   const f = await withTempSessions(t);
   const child = await f.child();
-  const scan = await scanSubagentSessions(f.root, f.parent);
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent);
   await assert.rejects(readSessionIdentity(f.parent.file, scan.directory), /outside/);
-  await fs.writeFile(child.file, sessionText("replacement", f.cwd));
+  await fs.writeFile(child.file, sessionText("replacement", f.projectDir));
   assert.equal((await readSessionIdentity(child.file, scan.directory)).id, "replacement");
   await fs.unlink(child.file);
   await assert.rejects(readSessionIdentity(child.file, scan.directory), { code: "ENOENT" });

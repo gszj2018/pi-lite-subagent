@@ -10,7 +10,7 @@ import { test } from "node:test";
 import { DEPTH_ENV, NAME_ENV } from "../extension/env-vars.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import type { ProcessEnvLike, SubagentRunnerDeps } from "../extension/types.ts";
-import { makeTempDir, withTempUserAgents } from "./helpers/agents-fixture.ts";
+import { withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { MockSpawn, assistantMessage, messageEndEvent } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext } from "./helpers/mocks.ts";
 
@@ -25,7 +25,7 @@ function makeDeps(spawnMock: MockSpawn, agentDir: string, env: ProcessEnvLike = 
 }
 
 test("integration: parallel run spawns children with the full args/env/cwd contract", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const pi = new MockPi();
   const spawnMock = new MockSpawn([
     { stdoutLines: [messageEndEvent(assistantMessage("alpha-output"))] },
@@ -33,7 +33,7 @@ test("integration: parallel run spawns children with the full args/env/cwd contr
   ]);
   registerSubagentTool(pi.api, makeDeps(spawnMock, agentDir, { PATH: "/bin" }));
 
-  const { ctx } = createContext({ cwd: "/work", trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const result = await pi.tools.get("subagent").execute(
     "c1",
     {
@@ -57,7 +57,7 @@ test("integration: parallel run spawns children with the full args/env/cwd contr
 
   assert.equal(spawnMock.calls.length, 2);
   for (const call of spawnMock.calls) {
-    assert.equal(call.options.cwd, "/work");
+    assert.equal(call.options.cwd, projectDir);
     const env = call.options.env as Record<string, string | undefined>;
     assert.equal(env[DEPTH_ENV], "1");
     assert.equal(env[NAME_ENV], "worker");
@@ -71,7 +71,7 @@ test("integration: parallel run spawns children with the full args/env/cwd contr
 });
 
 test("integration: chain run threads {previous} and reports the final output", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const pi = new MockPi();
   const spawnMock = new MockSpawn([
     { stdoutLines: [messageEndEvent(assistantMessage("RESULT-42"))] },
@@ -79,7 +79,7 @@ test("integration: chain run threads {previous} and reports the final output", a
   ]);
   registerSubagentTool(pi.api, makeDeps(spawnMock, agentDir));
 
-  const { ctx } = createContext({ cwd: "/work", trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const result = await pi.tools.get("subagent").execute(
     "c1",
     {
@@ -102,21 +102,21 @@ test("integration: chain run threads {previous} and reports the final output", a
 });
 
 test("integration: parent-session persistence creates the dir and emits --session-dir", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
-  const sessionRoot = await makeTempDir("pi-lite-int-sess-");
-  t.after(sessionRoot.cleanup);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
+  const sessionDir = path.join(agentDir, "sessions");
+  await fs.promises.mkdir(sessionDir);
 
   const pi = new MockPi();
   const spawnMock = new MockSpawn([{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
   registerSubagentTool(pi.api, makeDeps(spawnMock, agentDir));
 
-  const { ctx } = createContext({ cwd: "/work", trusted: true, sessionDir: sessionRoot.dir, sessionId: "sess-42" });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true, sessionDir, sessionId: "sess-42" });
   const result = await pi.tools
     .get("subagent")
     .execute("c1", { tasks: [{ agent: "worker", task: "t" }] }, undefined, undefined, ctx);
   assert.equal(result.isError, undefined);
 
-  const expectedDir = path.join(sessionRoot.dir, "lite-subagent", "sess-42");
+  const expectedDir = path.join(sessionDir, "lite-subagent", "sess-42");
   assert.ok(fs.existsSync(expectedDir), "the subagent session dir is really created");
   const args = spawnMock.calls[0].args;
   const index = args.indexOf("--session-dir");

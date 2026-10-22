@@ -23,10 +23,10 @@ function setupTool(agentDir: string, scripts: MockProcScript[] = []) {
 }
 
 test("project/both scope fails on untrusted projects without spawning", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   for (const agentScope of ["project", "both"] as const) {
     const { tool, spawnMock } = setupTool(agentDir);
-    const { ctx } = createContext({ trusted: false });
+    const { ctx } = createContext({ cwd: projectDir, trusted: false });
     const result = await tool.execute(
       "c1",
       { tasks: [{ agent: "worker", task: "t" }], agentScope },
@@ -46,9 +46,9 @@ test("project/both scope fails on untrusted projects without spawning", async (t
 });
 
 test("user scope runs on untrusted projects", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const { tool, spawnMock } = setupTool(agentDir, [{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
-  const { ctx } = createContext({ trusted: false });
+  const { ctx } = createContext({ cwd: projectDir, trusted: false });
   const result = await tool.execute("c1", { tasks: [{ agent: "worker", task: "t" }] }, undefined, undefined, ctx);
   assert.equal(result.isError, undefined);
   assert.equal(spawnMock.calls.length, 1);
@@ -60,9 +60,9 @@ test("user scope runs on untrusted projects", async (t) => {
 });
 
 test("task count is validated before spawning", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const { tool, spawnMock } = setupTool(agentDir);
-  const { ctx } = createContext({ trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
 
   const empty = await tool.execute("c1", { tasks: [] }, undefined, undefined, ctx);
   assert.equal(empty.isError, true);
@@ -81,12 +81,12 @@ test("task count is validated before spawning", async (t) => {
 });
 
 test("chain mode threads {previous} through steps and returns the final output", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const { tool, spawnMock } = setupTool(agentDir, [
     { stdoutLines: [messageEndEvent(assistantMessage("RESULT-A"))] },
     { stdoutLines: [messageEndEvent(assistantMessage("done"))] },
   ]);
-  const { ctx } = createContext({ trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const result = await tool.execute(
     "c1",
     {
@@ -110,12 +110,12 @@ test("chain mode threads {previous} through steps and returns the final output",
 });
 
 test("chain mode stops at the first failure and reports the failing step", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const { tool, spawnMock } = setupTool(agentDir, [
     { stderr: "boom", exitCode: 1 },
     { stdoutLines: [messageEndEvent(assistantMessage("never"))] },
   ]);
-  const { ctx } = createContext({ trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const result = await tool.execute(
     "c1",
     {
@@ -137,13 +137,13 @@ test("chain mode stops at the first failure and reports the failing step", async
 });
 
 test("parallel mode bounds concurrency and reports per-task summaries", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const scripts: MockProcScript[] = Array.from({ length: 6 }, (_, i) => ({
     hold: true,
     stdoutLines: [messageEndEvent(assistantMessage(`out-${i}`))],
   }));
   const { tool, spawnMock } = setupTool(agentDir, scripts);
-  const { ctx } = createContext({ trusted: true });
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const promise = tool.execute(
     "c1",
     { tasks: Array.from({ length: 6 }, (_, i) => ({ agent: "worker", task: `task-${i}` })) },
@@ -173,10 +173,10 @@ test("parallel mode bounds concurrency and reports per-task summaries", async (t
 });
 
 test("a single task completes in either mode", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   for (const mode of ["parallel", "chain"] as const) {
     const { tool, spawnMock } = setupTool(agentDir, [{ stdoutLines: [messageEndEvent(assistantMessage("solo"))] }]);
-    const { ctx } = createContext({ trusted: true });
+    const { ctx } = createContext({ cwd: projectDir, trusted: true });
     const result = await tool.execute("c1", { mode, tasks: [{ agent: "worker", task: "only" }] }, undefined, undefined, ctx);
     assert.equal(spawnMock.calls.length, 1, mode);
     assert.equal(result.isError, undefined, mode);
@@ -189,8 +189,8 @@ test("a single task completes in either mode", async (t) => {
 const HINT_PATH = /\[Output truncated: [^\]]*Full output saved to: (.+?)\]/;
 
 test("parallel summaries and chain error output carry the truncation hint", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
-  const { ctx } = createContext({ trusted: true });
+  const { agentDir, projectDir } = await withTempUserAgents(t);
+  const { ctx } = createContext({ cwd: projectDir, trusted: true });
   const bigText = "y".repeat(60 * 1024); // over the host default cap
 
   const parallel = setupTool(agentDir, [{ stdoutLines: [messageEndEvent(assistantMessage(bigText))] }]);

@@ -30,9 +30,9 @@ interface Runtime {
 
 async function fixture(t: TestContext) {
   const files = await withTempSessions(t);
-  const agentDir = path.join(files.cwd, "agents-config");
+  const { agentDir, projectDir } = files;
   await writeAgentFile(path.join(agentDir, "agents"), "worker.md", agentMarkdown({ name: "worker", description: "test" }));
-  await fs.mkdir(path.join(files.cwd, ".pi", "agents"), { recursive: true });
+  await fs.mkdir(path.join(projectDir, ".pi", "agents"), { recursive: true });
   const env: ProcessEnvLike = {};
   const runtimes: Runtime[] = [];
   const switches: string[] = [];
@@ -45,7 +45,7 @@ async function fixture(t: TestContext) {
     ui.terminal.rows = 50;
     const entries = parseSessionEntries(await fs.readFile(identity.file, "utf8"));
     const options: ContextOptions = {
-      cwd: files.cwd, sessionId: identity.id, sessionFile: identity.file,
+      cwd: projectDir, sessionId: identity.id, sessionFile: identity.file,
       sessionDir: path.dirname(identity.file), entries,
     };
     const mock = createContext(options);
@@ -181,9 +181,9 @@ test("integration: selected-file replacement and deletion fail before any switch
   const f = await fixture(t);
   const child = await f.child();
   for (const replacement of ["new-id", undefined]) {
-    await fs.writeFile(child.file, sessionText(child.id, f.cwd));
+    await fs.writeFile(child.file, sessionText(child.id, f.projectDir));
     const opening = await f.openPicker();
-    if (replacement) await fs.writeFile(child.file, sessionText(replacement, f.cwd));
+    if (replacement) await fs.writeFile(child.file, sessionText(replacement, f.projectDir));
     else await fs.unlink(child.file);
     f.press("\r"); await opening.execution;
     assert.equal(f.env[RETURN_STACK_ENV], undefined);
@@ -199,7 +199,7 @@ test("integration: missing or invalid parent files retain the return frame for r
   f.press("\r"); await opening.execution;
   const before = f.env[RETURN_STACK_ENV];
   const parentText = await fs.readFile(f.parent.file);
-  for (const content of [undefined, "bad header\n", sessionText("wrong-id", f.cwd)]) {
+  for (const content of [undefined, "bad header\n", sessionText("wrong-id", f.projectDir)]) {
     if (content === undefined) await fs.unlink(f.parent.file);
     else await fs.writeFile(f.parent.file, content);
     await f.invoke("return-to-parent-session");
@@ -230,7 +230,7 @@ test("integration: navigation gates reject non-TUI, busy, pending, empty and eph
   await f.invoke();
   f.current.options.sessionFile = f.parent.file;
   await f.invoke(); // Missing child directory.
-  await fs.mkdir(path.join(f.root, "lite-subagent", f.parent.id), { recursive: true });
+  await fs.mkdir(path.join(f.sessionDir, "lite-subagent", f.parent.id), { recursive: true });
   await f.invoke(); // Empty child directory.
   assert.equal(f.current.ui.interactions.length, 0);
   assert.equal(f.switches.length, 0);
@@ -341,7 +341,7 @@ test("integration: navigation can start while browsing and switching closes the 
 test("integration: an existing marker remains read-only after the outermost return clears the stack", async (t) => {
   const f = await fixture(t);
   await f.child();
-  await fs.writeFile(f.parent.file, sessionText(f.parent.id, f.cwd, { agent: "existing-marker" }));
+  await fs.writeFile(f.parent.file, sessionText(f.parent.id, f.projectDir, { agent: "existing-marker" }));
   const opening = await f.openPicker();
   f.press("\r"); await opening.execution;
   await f.invoke("return-to-parent-session");

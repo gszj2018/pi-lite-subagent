@@ -21,9 +21,9 @@ import { MockSpawn } from "./helpers/mock-spawn.ts";
 import { MockPi, createContext } from "./helpers/mocks.ts";
 
 /** Assemble like the factory: session env and marker always, the tool only when the depth gate allows. */
-async function setupExtension(t: TestContext, pi: MockPi, env: ProcessEnvLike): Promise<MockSpawn> {
+async function setupExtension(t: TestContext, pi: MockPi, env: ProcessEnvLike) {
   const spawnMock = new MockSpawn([]);
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   registerSessionEnv(pi.api, env);
   registerSessionNavigation(pi.api, env);
   registerActiveAgentMarker(pi.api, env);
@@ -36,16 +36,16 @@ async function setupExtension(t: TestContext, pi: MockPi, env: ProcessEnvLike): 
       extensionArgs: { extensions: [], noExtensions: false },
     });
   }
-  return spawnMock;
+  return { spawnMock, projectDir };
 }
 
 test("integration: root session lifecycle writes and cleans the parent session pointer", async (t) => {
   const env: ProcessEnvLike = {};
   const pi = new MockPi();
-  await setupExtension(t, pi, env);
+  const { projectDir } = await setupExtension(t, pi, env);
   assert.ok(pi.tools.has("subagent"), "root sessions register the subagent tool");
 
-  const { ctx } = createContext({ sessionId: "root-1" });
+  const { ctx } = createContext({ cwd: projectDir, sessionId: "root-1" });
   await pi.emitLifecycle("session_start", ctx);
   assert.equal(env[PARENT_SESSION_ENV], "root-1");
 
@@ -60,10 +60,10 @@ test("integration: subagent session stays a leaf, keeps env and becomes inspecti
     [PARENT_SESSION_ENV]: "root-1",
   };
   const pi = new MockPi();
-  await setupExtension(t, pi, env);
+  const { projectDir } = await setupExtension(t, pi, env);
   assert.equal(pi.tools.has("subagent"), false, "subagent sessions never register the tool");
 
-  const { ctx, notifications } = createContext({ sessionId: "child-1", entries: [] });
+  const { ctx, notifications } = createContext({ cwd: projectDir, sessionId: "child-1", entries: [] });
   await pi.emitLifecycle("session_start", ctx);
   assert.equal(env[PARENT_SESSION_ENV], "root-1", "the inherited pointer is never overwritten");
   assert.equal(env[DEPTH_ENV], "1");
@@ -88,10 +88,10 @@ test("integration: a resumed subagent session keeps one marker and stays inspect
     [PARENT_SESSION_ENV]: "root-1",
   };
   const pi = new MockPi();
-  await setupExtension(t, pi, env);
+  const { projectDir } = await setupExtension(t, pi, env);
 
   const markerEntry = { type: "custom", customType: ACTIVE_AGENT_ENTRY_TYPE, data: { name: "worker" } };
-  const { ctx } = createContext({ sessionId: "child-1", entries: [markerEntry] });
+  const { ctx } = createContext({ cwd: projectDir, sessionId: "child-1", entries: [markerEntry] });
   await pi.emitLifecycle("session_start", ctx);
   await pi.emitLifecycle("before_agent_start", ctx);
   assert.deepEqual(pi.appendedEntries, [], "the resumed session already carries the marker");

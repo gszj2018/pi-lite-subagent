@@ -130,7 +130,7 @@ test("buildPiArgs places inherited extension flags first in short form", () => {
 });
 
 test("runSingleAgent aggregates usage and captures stop metadata", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([
     {
       stdoutLines: [
@@ -140,7 +140,7 @@ test("runSingleAgent aggregates usage and captures stop metadata", async (t) => 
       ],
     },
   ]);
-  const { ctx } = createContext({ cwd: "/workspace" });
+  const { ctx } = createContext({ cwd: projectDir });
   const result = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
@@ -164,13 +164,13 @@ test("runSingleAgent aggregates usage and captures stop metadata", async (t) => 
   assert.equal(result.stopReason, "end");
 
   assert.equal(spawnMock.calls.length, 1);
-  assert.equal(spawnMock.calls[0].options.cwd, "/workspace");
+  assert.equal(spawnMock.calls[0].options.cwd, projectDir);
 });
 
 test("runSingleAgent short-circuits unknown agents without spawning", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn();
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const result = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
@@ -189,11 +189,11 @@ test("runSingleAgent short-circuits unknown agents without spawning", async (t) 
 });
 
 test("runSingleAgent reports non-zero exits and collects stderr", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([
     { stderr: "boom\n", exitCode: 7, stdoutLines: [messageEndEvent(assistantMessage("partial"))] },
   ]);
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const result = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
@@ -210,9 +210,9 @@ test("runSingleAgent reports non-zero exits and collects stderr", async (t) => {
 });
 
 test("runSingleAgent writes and cleans up the system-prompt temp file", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{}]);
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const result = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
@@ -234,9 +234,9 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async (t
 
 test("runSingleAgent aborts with SIGTERM and clears the escalation timer on close", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true }]);
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const controller = new AbortController();
   const promise = runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
@@ -260,9 +260,9 @@ test("runSingleAgent aborts with SIGTERM and clears the escalation timer on clos
 
 test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ hold: true, ignoreTerm: true }]);
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const controller = new AbortController();
   const promise = runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
@@ -324,9 +324,9 @@ test("getPiInvocation resolves the launch from injected inputs", async (t) => {
 });
 
 test("runSingleAgent spawns with the built child env", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
-  const { ctx } = createContext();
+  const { ctx } = createContext({ cwd: projectDir });
   const result = await runSingleAgent({
     deps: { ...makeDeps(spawnMock, agentDir), env: { [PARENT_SESSION_ENV]: "sess-root", PATH: "/bin" } },
     ctx,
@@ -369,11 +369,11 @@ test("isPathSafeSessionId accepts only simple path-safe ids", () => {
 });
 
 test("runSingleAgent persists subagent sessions under the parent session dir", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
-  const tmp = await makeTempDir("pi-lite-session-");
-  t.after(tmp.cleanup);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
+  const sessionDir = path.join(agentDir, "sessions");
+  await fs.promises.mkdir(sessionDir);
   const spawnMock = new MockSpawn([{}]);
-  const { ctx } = createContext({ sessionDir: tmp.dir, sessionId: "sess-7" });
+  const { ctx } = createContext({ cwd: projectDir, sessionDir, sessionId: "sess-7" });
   const result = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
@@ -385,7 +385,7 @@ test("runSingleAgent persists subagent sessions under the parent session dir", a
   });
   assert.equal(result.exitCode, 0);
 
-  const expectedDir = path.join(tmp.dir, "lite-subagent", "sess-7");
+  const expectedDir = path.join(sessionDir, "lite-subagent", "sess-7");
   assert.ok(fs.existsSync(expectedDir), "the session dir is really created");
   const args = spawnMock.calls[0].args;
   const index = args.indexOf("--session-dir");
@@ -395,12 +395,12 @@ test("runSingleAgent persists subagent sessions under the parent session dir", a
 });
 
 test("runSingleAgent falls back to --no-session when persistence is not possible", async (t) => {
-  const { agentDir } = await withTempUserAgents(t);
+  const { agentDir, projectDir } = await withTempUserAgents(t);
   // No session dir configured (no persistence).
   const noDir = new MockSpawn([{}]);
   await runSingleAgent({
     deps: makeDeps(noDir, agentDir),
-    ctx: createContext().ctx,
+    ctx: createContext({ cwd: projectDir }).ctx,
     agents: [makeAgent()],
     agentName: "worker",
     task: "t",
@@ -413,7 +413,7 @@ test("runSingleAgent falls back to --no-session when persistence is not possible
   const unsafe = new MockSpawn([{}]);
   await runSingleAgent({
     deps: makeDeps(unsafe, agentDir),
-    ctx: createContext({ sessionDir: "/nonexistent-root", sessionId: "../evil" }).ctx,
+    ctx: createContext({ cwd: projectDir, sessionDir: path.join(agentDir, "sessions"), sessionId: "../evil" }).ctx,
     agents: [makeAgent()],
     agentName: "worker",
     task: "t",
@@ -423,13 +423,13 @@ test("runSingleAgent falls back to --no-session when persistence is not possible
   assert.ok(unsafe.calls[0].args.includes("--no-session"), "unsafe session id");
 
   // The session dir cannot be created (a file blocks the path): degrade.
-  const tmp = await makeTempDir("pi-lite-session-");
-  t.after(tmp.cleanup);
-  await fs.promises.writeFile(path.join(tmp.dir, "lite-subagent"), "file, not a directory", "utf-8");
+  const sessionDir = path.join(agentDir, "sessions");
+  await fs.promises.mkdir(sessionDir);
+  await fs.promises.writeFile(path.join(sessionDir, "lite-subagent"), "file, not a directory", "utf-8");
   const blocked = new MockSpawn([{}]);
   await runSingleAgent({
     deps: makeDeps(blocked, agentDir),
-    ctx: createContext({ sessionDir: tmp.dir, sessionId: "s1" }).ctx,
+    ctx: createContext({ cwd: projectDir, sessionDir, sessionId: "s1" }).ctx,
     agents: [makeAgent()],
     agentName: "worker",
     task: "t",
