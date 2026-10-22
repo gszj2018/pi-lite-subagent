@@ -14,14 +14,14 @@
  * structured output from subagents.
  */
 
-import * as os from "node:os";
 import * as path from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { CONFIG_DIR_NAME, type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { type AgentScope, discoverAgents } from "./agents.ts";
 import { emptyUsageStats, getFinalOutput, getResultOutput, isFailedResult, runSingleAgent } from "./run-agent.ts";
+import { appendDisplayItems, type DisplayItem, formatToolCall, formatUsageStats, getDisplayItems } from "./subagent-rendering.ts";
 import { truncateSubagentOutput } from "./truncation.ts";
 import type { DispatchDefaults, OnUpdateCallback, SingleResult, SubagentDetails, SubagentRunnerDeps } from "./types.ts";
 
@@ -29,136 +29,6 @@ const MAX_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 
 type ExecutionMode = "parallel" | "chain";
-
-function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  return `${(count / 1000000).toFixed(1)}M`;
-}
-
-function formatUsageStats(
-  usage: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost: number;
-    contextTokens?: number;
-    turns?: number;
-  },
-  model?: string,
-): string {
-  const parts: string[] = [];
-  if (usage.turns) parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
-  if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
-  if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
-  if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
-  if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
-  if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
-  if (usage.contextTokens && usage.contextTokens > 0) {
-    parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
-  }
-  if (model) parts.push(model);
-  return parts.join(" ");
-}
-
-function parseLineNumber(value: unknown): number | undefined {
-  if (typeof value === "string" && value.trim() !== "") value = Number(value);
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function formatReadLineRange(offset: unknown, limit: unknown): string | undefined {
-  // Strict schemas represent omitted optional arguments as null.
-  if (offset == null && limit == null) return undefined;
-  const start = offset == null ? 1 : parseLineNumber(offset);
-  if (start === undefined) return undefined;
-  if (limit == null) return `:${start}`;
-  const count = parseLineNumber(limit);
-  if (count === undefined) return undefined;
-  const end = start + count - 1;
-  return `:${start}${end ? `-${end}` : ""}`;
-}
-
-function formatToolCall(
-  toolName: string,
-  args: Record<string, unknown>,
-  themeFg: (color: any, text: string) => string,
-): string {
-  const shortenPath = (p: string) => {
-    const home = os.homedir();
-    return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
-  };
-
-  switch (toolName) {
-    case "bash": {
-      const command = (args.command as string) || "...";
-      const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
-      return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
-    }
-    case "read": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      const filePath = shortenPath(rawPath);
-      const lineRange = formatReadLineRange(args.offset, args.limit);
-      let text = themeFg("accent", filePath);
-      if (lineRange) {
-        text += themeFg("warning", lineRange);
-      }
-      return themeFg("muted", "read ") + text;
-    }
-    case "write": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      const filePath = shortenPath(rawPath);
-      const content = (args.content || "") as string;
-      const lines = content.split("\n").length;
-      let text = themeFg("muted", "write ") + themeFg("accent", filePath);
-      if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
-      return text;
-    }
-    case "edit": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      return themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath));
-    }
-    case "ls": {
-      const rawPath = (args.path || ".") as string;
-      return themeFg("muted", "ls ") + themeFg("accent", shortenPath(rawPath));
-    }
-    case "find": {
-      const pattern = (args.pattern || "*") as string;
-      const rawPath = (args.path || ".") as string;
-      return themeFg("muted", "find ") + themeFg("accent", pattern) + themeFg("dim", ` in ${shortenPath(rawPath)}`);
-    }
-    case "grep": {
-      const pattern = (args.pattern || "") as string;
-      const rawPath = (args.path || ".") as string;
-      return (
-        themeFg("muted", "grep ") +
-        themeFg("accent", `/${pattern}/`) +
-        themeFg("dim", ` in ${shortenPath(rawPath)}`)
-      );
-    }
-    default: {
-      const argsStr = JSON.stringify(args);
-      const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
-      return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
-    }
-  }
-}
-
-type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, any> };
-
-function getDisplayItems(messages: SingleResult["messages"]): DisplayItem[] {
-  const items: DisplayItem[] = [];
-  for (const msg of messages) {
-    if (msg.role === "assistant") {
-      for (const part of msg.content) {
-        if (part.type === "text") items.push({ type: "text", text: part.text });
-        else if (part.type === "toolCall") items.push({ type: "toolCall", name: part.name, args: part.arguments });
-      }
-    }
-  }
-  return items;
-}
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
   items: TIn[],
@@ -425,8 +295,6 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
       }
 
-      const mdTheme = getMarkdownTheme();
-
       const renderDisplayItems = (items: DisplayItem[], limit?: number) => {
         const toShow = limit ? items.slice(-limit) : items;
         const skipped = limit && items.length > limit ? items.length - limit : 0;
@@ -476,16 +344,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         container.addChild(new Spacer(1));
         container.addChild(new Text(sectionHeader(r), 0, 0));
         container.addChild(new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0));
-        for (const item of getDisplayItems(r.messages)) {
-          if (item.type === "text") {
-            container.addChild(new Spacer(1));
-            container.addChild(new Markdown(item.text, 0, 0, mdTheme));
-          } else {
-            container.addChild(
-              new Text(theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)), 0, 0),
-            );
-          }
-        }
+        appendDisplayItems(container, getDisplayItems(r.messages), theme);
         const usage = formatUsageStats(r.usage, r.model);
         if (usage) container.addChild(new Text(theme.fg("dim", usage), 0, 0));
       };

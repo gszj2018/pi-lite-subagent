@@ -84,6 +84,7 @@ export interface ContextOptions {
   sessionId?: string;
   sessionDir?: string;
   entries?: unknown[];
+  branch?: unknown[];
   cwd?: string;
   trusted?: boolean;
   mode?: ExtensionContext["mode"];
@@ -109,6 +110,7 @@ export function createContext(options: ContextOptions = {}): MockContext {
       getSessionId: () => options.sessionId ?? "session-1",
       getSessionDir: () => options.sessionDir ?? "",
       getEntries: () => options.entries ?? [],
+      getBranch: () => options.branch ?? options.entries ?? [],
     },
     isProjectTrusted: () => options.trusted ?? false,
     isIdle: () => options.idle ?? true,

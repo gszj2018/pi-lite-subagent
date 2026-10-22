@@ -45,7 +45,7 @@ export class SubagentBrowser implements Component {
   private disposed = false;
 
   constructor(
-    private readonly content: BrowserContent,
+    private content: BrowserContent,
     private readonly tui: Pick<TUI, "terminal" | "requestRender">,
     private readonly theme: Theme,
     private readonly keybindings: KeybindingsManager,
@@ -63,6 +63,20 @@ export class SubagentBrowser implements Component {
   dispose(): void {
     this.disposed = true;
     this.invalidate();
+  }
+
+  updateContent(content: BrowserContent): void {
+    if (this.disposed) return;
+    const selectedId = this.selected?.id;
+    const index = content.items.findIndex((item) => item.id === selectedId);
+    this.content = content;
+    this.selectedIndex = index >= 0 ? index : Math.max(0, Math.min(this.selectedIndex, content.items.length - 1));
+    if (index < 0) {
+      this.showingDetail = false;
+      this.scrollTop = 0;
+    }
+    this.invalidate();
+    this.tui.requestRender();
   }
 
   private get height(): number {
@@ -228,6 +242,7 @@ export async function showSubagentBrowser(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   load: () => BrowserContent,
+  subscribe?: (refresh: () => void) => () => void,
 ): Promise<void> {
   let closed = false;
   let finishUI: (() => void) | undefined;
@@ -243,19 +258,42 @@ export async function showSubagentBrowser(
   try {
     disposers.push(pi.events.on("permissions:ui_prompt", close));
     disposers.push(pi.on("session_shutdown", close));
-    const content = load();
+    let content = load();
     if (closed) return;
     if (content.items.length === 0) {
       ctx.ui.notify(content.emptyMessage, "info");
       return;
     }
+    let browser: SubagentBrowser | undefined;
+    if (subscribe) {
+      const unsubscribe = subscribe(() => {
+        if (closed) return;
+        try {
+          const next = load();
+          if (closed) return;
+          if (next.items.length === 0) { close(); return; }
+          content = next;
+          browser?.updateContent(content);
+        } catch (error) {
+          if (!closed) {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.ui.notify(`Cannot refresh subagent browser: ${singleLineLabel(message)}`, "error");
+            close();
+          }
+        }
+      });
+      if (closed) unsubscribe();
+      else disposers.push(unsubscribe);
+    }
+    if (closed) return;
     await ctx.ui.custom<void>((tui, theme, keybindings, done) => {
       finishUI = () => done(undefined);
       if (closed) {
         finishUI();
         return { render: () => [], invalidate() {} };
       }
-      return new SubagentBrowser(content, tui, theme, keybindings, close);
+      browser = new SubagentBrowser(content, tui, theme, keybindings, close);
+      return browser;
     }, {
       overlay: true,
       overlayOptions: { anchor: "center", width: "90%", maxHeight: "80%", margin: 1 },

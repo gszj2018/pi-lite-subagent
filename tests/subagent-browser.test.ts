@@ -282,6 +282,90 @@ test("detail construction errors remain readable and allow returning to the list
   assert.doesNotMatch(plain(browser).join("\n"), /broken detail/);
 });
 
+test("content refresh preserves selected identity and body scroll, even when newer calls are prepended", () => {
+  const ui = new BrowserUI();
+  const data = content(2);
+  const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
+  browser.handleInput(keys.down);
+  browser.handleInput(keys.enter);
+  plain(browser);
+  for (let i = 0; i < 3; i++) browser.handleInput(keys.down);
+  const before = sections(plain(browser));
+  const next = content(3);
+  next.items = [next.items[2], data.items[0], {
+    ...data.items[1], label: "updated selected task",
+    createDetail: () => new Text(Array.from({ length: 80 }, (_, index) => `line-${index + 1}`).join("\n"), 0, 0),
+  }];
+  browser.updateContent(next);
+  const after = sections(plain(browser));
+  assert.match(after[1][0], /updated selected task/);
+  assert.equal(after[2][0], before[2][0], "refresh never auto-scrolls to the newest output");
+  assert.match(after[3].at(-1)!, /\/80│$/);
+  browser.updateContent({ ...data, items: [data.items[0]] });
+  assert.match(sections(plain(browser))[1][0], /→ agent-0/);
+  assert.doesNotMatch(plain(browser).join("\n"), /line-4/);
+  browser.dispose();
+  const requests = ui.renderRequests;
+  browser.updateContent(data);
+  assert.equal(ui.renderRequests, requests);
+});
+
+test("live subscriptions refresh before mounting and are detached on permission preemption", async (t) => {
+  const { pi, ctx, ui } = interaction(t);
+  let current = content(1);
+  let refresh!: () => void;
+  let loads = 0;
+  let detached = 0;
+  ui.beforeFactory = () => {
+    current = { ...current, title: "Refreshed before mounting" };
+    refresh();
+  };
+  const opening = showSubagentBrowser(pi.api, ctx, () => { loads++; return current; }, (listener) => {
+    refresh = listener;
+    return () => { detached++; };
+  });
+  await flushPromises();
+  assert.match(plain(ui.interactions[0].component!).join("\n"), /Refreshed before mounting/);
+  current = { ...current, title: "Refreshed while open" };
+  refresh();
+  assert.match(plain(ui.interactions[0].component!).join("\n"), /Refreshed while open/);
+  pi.events.emit("permissions:ui_prompt", {});
+  assert.equal(detached, 1);
+  const before = loads;
+  refresh();
+  assert.equal(loads, before, "late callbacks cannot read a stale context or reopen the dialog");
+  await opening;
+  assertReleased(pi);
+});
+
+test("empty or failed refresh closes cleanly, including immediate cancellation while subscribing", async (t) => {
+  for (const failure of [false, true]) {
+    const { pi, ctx, notifications } = interaction(t);
+    let refresh!: () => void;
+    let update = false;
+    let detached = 0;
+    const opening = showSubagentBrowser(pi.api, ctx, () => {
+      if (update && failure) throw new Error("refresh failed");
+      return content(update ? 0 : 1);
+    }, (listener) => { refresh = listener; return () => { detached++; }; });
+    update = true;
+    refresh();
+    await opening;
+    assert.equal(detached, 1);
+    assert.equal(notifications.length, failure ? 1 : 0);
+    assertReleased(pi);
+  }
+  const { pi, ctx, ui } = interaction(t);
+  let detached = 0;
+  await showSubagentBrowser(pi.api, ctx, () => content(1), () => {
+    pi.events.emit("permissions:ui_prompt", {});
+    return () => { detached++; };
+  });
+  assert.equal(detached, 1);
+  assert.equal(ui.interactions.length, 0);
+  assertReleased(pi);
+});
+
 test("permission preemption closes an open list or detail synchronously and only once", async (t) => {
   const { pi, ctx, ui, notifications } = interaction(t);
   for (const detail of [false, true]) {

@@ -56,7 +56,7 @@ test("list-subagents keeps same-name user and project agents, grouped in stable 
   for (const name of names) assert.ok(list.includes(name), name);
   assert.deepEqual(names.map((name) => list.indexOf(name)), names.map((name) => list.indexOf(name)).sort((a, b) => a - b));
   assert.doesNotMatch(list, /invalid \(project\)/, "discovery's invalid-definition filtering is preserved");
-  assert.deepEqual([...f.pi.commands.keys()], ["list-subagents"], "later-phase commands are not registered early");
+  assert.deepEqual([...f.pi.commands.keys()], ["list-subagents", "view-subagents"], "session navigation stays deferred");
   f.press("\x1b");
   await opening;
 });
@@ -144,14 +144,14 @@ test("the command remains usable while busy and inside an inspection-only sessio
   await opening;
 });
 
-test("non-TUI modes report an error without opening a browser or subscribing to events", async (t) => {
+test("non-TUI modes report an error without opening a browser or subscribing interaction handlers", async (t) => {
   for (const mode of ["rpc", "json", "print"] as const) {
     const f = await fixture(t, { mode });
     await f.invoke();
     assert.equal(f.ui.interactions.length, 0);
     assert.deepEqual(f.notifications, [{ message: "list-subagents requires interactive TUI mode.", type: "error" }]);
     assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-    assert.equal(f.pi.count("session_shutdown"), 0);
+    assert.equal(f.pi.count("session_shutdown"), 1, "only the session-local history observer is registered");
   }
 });
 
@@ -182,7 +182,7 @@ test("the command rejects overlapping browsers and releases its guard after perm
   f.press("\x03");
   await second;
   assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-  assert.equal(f.pi.count("session_shutdown"), 0);
+  assert.equal(f.pi.count("session_shutdown"), 1, "closing dialogs leaves only the history lifecycle observer");
 });
 
 test("discovery errors are caught at the command boundary and do not leave a stale interaction guard", async (t) => {
