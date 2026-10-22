@@ -83,11 +83,15 @@ function historyContent(tasks: HistoryTask[]): BrowserContent {
   return {
     title: "Subagent executions [active branch]",
     emptyMessage: "No subagent calls found on the active branch.",
-    items: tasks.map((task) => ({
-      id: task.id,
-      label: `${task.agent} · ${task.mode === "chain" ? task.task.replace(/\{previous\}/g, "").trim() : task.task}`,
-      createDetail: (theme) => historyDetail(task, theme),
-    })),
+    items: tasks.map((task) => {
+      const status = task.status === "Completed" ? "" : ` (${task.status})`;
+      return {
+        id: task.id,
+        label: `${task.agent}${status} · ${
+          task.mode === "chain" ? task.task.replace(/\{previous\}/g, "").trim() : task.task}`,
+        createDetail: (theme) => historyDetail(task, theme),
+      };
+    }),
   };
 }
 

@@ -53,7 +53,7 @@ test("integration: view-subagents lists only active-branch tasks in recent-call 
   const list = f.render();
   assert.ok(list.indexOf("worker · produce") < list.indexOf("worker · consume"));
   assert.ok(list.indexOf("worker · consume") < list.indexOf("worker · old task"));
-  assert.doesNotMatch(list, /\{previous\}|hidden-agent|hidden history/);
+  assert.doesNotMatch(list, /\{previous\}|hidden-agent|hidden history|\(Completed\)/);
   f.press("\x1b[B");
   f.press("\r");
   const detail = f.render();
@@ -63,6 +63,40 @@ test("integration: view-subagents lists only active-branch tasks in recent-call 
   assert.match(detail, /Mode: chain · Step 2/);
   assert.match(detail, /Model: provider\/model/);
   assert.match(detail, /1 turn/);
+  f.press("\x03");
+  await opening;
+});
+
+test("integration: every non-completed status follows the agent name with one separating space", async (t) => {
+  const terminal = (id: string, overrides: Record<string, unknown> = {}) => [
+    callEntry(id, [task("worker", id)]), resultEntry(id, [singleResult({ task: id, ...overrides })]),
+  ];
+  const f = await setup(t, [
+    ...terminal("completed"), ...terminal("failed", { exitCode: 1 }),
+    ...terminal("aborted", { stopReason: "aborted" }),
+    callEntry("blocked", [task("worker", "blocked")]), resultEntry("blocked", [], { isError: true }),
+    callEntry("unknown", [task("worker", "unknown")]),
+    callEntry("missing", [task("worker", "missing")]), resultEntry("missing", [], { details: undefined }),
+    callEntry("chain", [task("worker", "failed step"), task("worker", "skipped")], "chain"),
+    resultEntry("chain", [singleResult({ step: 1, exitCode: 1 })], { mode: "chain", isError: true }),
+    callEntry("active", [task("worker", "active")]),
+    callEntry("queued", [task("worker", "queued")], "chain"),
+  ]);
+  for (const id of ["active", "queued"]) {
+    await f.pi.emitLifecycle("tool_execution_start", f.ctx, { toolName: "subagent", toolCallId: id });
+  }
+  const opening = f.invoke();
+  await flushPromises();
+  const list = f.render();
+  for (const [status, prompt] of [
+    ["Failed", "failed"], ["Aborted", "aborted"], ["Not executed", "blocked"],
+    ["Unknown / interrupted", "unknown"], ["Result details unavailable", "missing"],
+    ["Skipped", "skipped"], ["Pending / running", "active"], ["Not started", "queued"],
+  ]) {
+    assert.ok(list.includes(`worker (${status}) · ${prompt}`), `missing label for ${status}`);
+  }
+  assert.match(list, /worker · completed/);
+  assert.doesNotMatch(list, /worker\s*\(Completed\)|worker\(/);
   f.press("\x03");
   await opening;
 });
@@ -88,13 +122,20 @@ test("integration: parallel execution updates the selected task live and reconci
   }, f.ctx);
   const opening = f.invoke();
   await flushPromises();
+  assert.match(f.render(), /worker \(Pending \/ running\) · first/);
+  assert.match(f.render(), /worker \(Pending \/ running\) · second/);
   f.press("\x1b[B");
   f.press("\r");
   assert.match(f.render(), /Status: Pending \/ running/);
   spawnMock.procs[0].release();
   await flushPromises();
-  assert.match(f.render(), /worker · second/);
+  assert.match(f.render(), /worker \(Pending \/ running\) · second/);
   assert.doesNotMatch(f.render(), /first output/);
+  f.press("\x1b");
+  assert.match(f.render(), /worker · first/);
+  assert.doesNotMatch(f.render(), /worker \([^)]*\) · first/);
+  assert.match(f.render(), /worker \(Pending \/ running\) · second/);
+  f.press("\r");
   spawnMock.procs[1].release();
   const final = await execution;
   await Promise.all(updates);
@@ -107,12 +148,64 @@ test("integration: parallel execution updates the selected task live and reconci
   branch.push(persisted);
   await f.pi.emitLifecycle("turn_end", f.ctx);
   assert.match(f.render(), /Status: Completed/);
+  f.press("\x1b");
+  assert.doesNotMatch(f.render(), /worker \(/);
   f.press("\x03");
   await opening;
   const requests = f.ui.renderRequests;
   await f.pi.emitLifecycle("turn_end", f.ctx);
   assert.equal(f.ui.renderRequests, requests, "closing removes the live UI subscriber");
   assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
+});
+
+test("integration: chain labels follow state transitions and omit completed statuses", async (t) => {
+  const tasks = [task("worker", "first"), task("worker", "later")];
+  const f = await setup(t, [callEntry("historical", [task("worker", "interrupted")]), callEntry("c", tasks, "chain")]);
+  const event = { toolName: "subagent", toolCallId: "c" };
+  await f.pi.emitLifecycle("tool_execution_start", f.ctx, event);
+  await f.pi.emitLifecycle("tool_execution_update", f.ctx, {
+    ...event, partialResult: resultEntry("c", [singleResult({ step: 1, exitCode: undefined })], { mode: "chain" }).message,
+  });
+  const opening = f.invoke();
+  await flushPromises();
+  assert.match(f.render(), /worker \(Pending \/ running\) · first/);
+  assert.match(f.render(), /worker \(Not started\) · later/);
+  assert.match(f.render(), /worker \(Unknown \/ interrupted\) · interrupted/);
+  await f.pi.emitLifecycle("tool_execution_update", f.ctx, {
+    ...event, partialResult: resultEntry("c", [
+      singleResult({ step: 1 }), singleResult({ step: 2, task: "later", exitCode: undefined }),
+    ], { mode: "chain" }).message,
+  });
+  assert.match(f.render(), /worker · first/);
+  assert.doesNotMatch(f.render(), /worker \([^)]*\) · first/);
+  assert.match(f.render(), /worker \(Pending \/ running\) · later/);
+  assert.doesNotMatch(f.render(), /\(Not started\)/);
+  await f.pi.emitLifecycle("agent_settled", f.ctx);
+  assert.match(f.render(), /worker \(Unknown \/ interrupted\) · later/);
+  assert.doesNotMatch(f.render(), /\((?:Pending \/ running|Not started)\)/);
+  f.press("\x03");
+  await opening;
+});
+
+test("integration: waiting chain steps become skipped immediately when an earlier step fails", async (t) => {
+  const tasks = [task("worker", "first"), task("worker", "later")];
+  const f = await setup(t, [callEntry("c", tasks, "chain")]);
+  const event = { toolName: "subagent", toolCallId: "c" };
+  await f.pi.emitLifecycle("tool_execution_start", f.ctx, event);
+  const opening = f.invoke();
+  await flushPromises();
+  assert.match(f.render(), /worker \(Not started\) · later/);
+  await f.pi.emitLifecycle("tool_execution_end", f.ctx, {
+    ...event, isError: true,
+    result: resultEntry("c", [singleResult({ step: 1, task: "first", exitCode: 1 })], {
+      mode: "chain", isError: true,
+    }).message,
+  });
+  assert.match(f.render(), /worker \(Skipped\) · later/);
+  assert.match(f.render(), /worker \(Failed\) · first/);
+  assert.doesNotMatch(f.render(), /\((?:Pending \/ running|Not started)\)/);
+  f.press("\x03");
+  await opening;
 });
 
 test("integration: failed chain steps expose stderr and all later task slots remain available as skipped", async (t) => {
@@ -125,7 +218,10 @@ test("integration: failed chain steps expose stderr and all later task slots rem
   ]);
   const opening = f.invoke();
   await flushPromises();
-  assert.match(f.render(), /worker · last/);
+  assert.match(f.render(), /worker \(Skipped\) · later/);
+  assert.match(f.render(), /worker \(Skipped\) · last/);
+  assert.match(f.render(), /worker \(Failed\) · task/);
+  assert.doesNotMatch(f.render(), /\((?:Pending \/ running|Not started)\)/);
   f.press("\r");
   assert.match(f.render(), /Status: Failed/);
   assert.match(f.render(), /Stderr: child process failed/);
