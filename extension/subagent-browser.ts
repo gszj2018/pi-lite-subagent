@@ -40,6 +40,7 @@ export class SubagentBrowser implements Component {
   private viewportHeight = 1;
   private list?: SelectList;
   private listHeight = 0;
+  private listWidth = 0;
   private detail?: Component;
   private detailWidth?: number;
   private detailLines?: string[];
@@ -107,8 +108,9 @@ export class SubagentBrowser implements Component {
     if (height < 2) return undefined;
     // Always reserve one row for SelectList's scroll information or an empty placeholder.
     const visible = Math.max(1, Math.min(height - 1, this.content.items.length));
-    if (!this.list || visible !== this.listHeight) {
+    if (!this.list || visible !== this.listHeight || width !== this.listWidth) {
       this.listHeight = visible;
+      this.listWidth = width;
       this.list = new SelectList(
         this.content.items.map((item) => ({
           value: item.id,
@@ -118,7 +120,10 @@ export class SubagentBrowser implements Component {
         visible,
         {
           selectedPrefix: (text) => this.theme.fg("accent", text),
-          selectedText: (text) => text,
+          selectedText: (text) => {
+            const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
+            return this.theme.bg("selectedBg", text) + this.theme.bg("selectedBg", padding);
+          },
           description: (text) => this.theme.fg("muted", text),
           scrollInfo: (text) => this.theme.fg("dim", text),
           noMatch: (text) => this.theme.fg("muted", text),

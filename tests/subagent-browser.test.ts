@@ -95,6 +95,62 @@ test("list headings use accent without coloring descriptions, including after se
   assert.match(plain(browser).join("\n"), /审阅者 \(user\) · definition two/);
 });
 
+test("selected backgrounds fill only the inner list row and follow selection, resize, refresh and theme", () => {
+  const ui = new BrowserUI();
+  const data = content(2);
+  data.items[0].label = "worker (Failed)";
+  data.items[0].description = "task one";
+  data.items[1].label = "reviewer (project)";
+  data.items[1].description = "definition two";
+  const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
+  const assertBackground = (width: number, label: string) => {
+    const rows = browser.render(width);
+    const background = `\x1b[${ui.backgroundColor}m`;
+    const highlighted = rows.filter((line) => line.includes(background));
+    assert.equal(highlighted.length, 1, "other options, information slots and fixed regions stay unhighlighted");
+    const selected = highlighted[0];
+    const border = ui.theme.fg("border", "│");
+    assert.ok(selected.startsWith(border + background), "the arrow shares the background, not the left border");
+    assert.ok(selected.endsWith(`\x1b[49m${border}`), "the background ends before the right border");
+    assert.equal(visibleWidth(selected), width);
+    assert.ok(selected.includes(ui.theme.fg("accent", label)), "the heading keeps its accent foreground");
+    assert.ok(stripTerminalSequences(selected).includes(`→ ${label}`));
+    return rows;
+  };
+  assertBackground(100, "worker (Failed)");
+  browser.handleInput(keys.down);
+  for (const width of [100, 48, 72, 100]) assertBackground(width, "reviewer (project)");
+  ui.backgroundColor = 45;
+  ui.color = 35;
+  browser.invalidate();
+  assert.ok(!assertBackground(100, "reviewer (project)").join("\n").includes("\x1b[44m"));
+  browser.updateContent({ ...data, items: [{ ...data.items[0], id: "new", label: "new" }, ...data.items] });
+  assertBackground(100, "reviewer (project)");
+  browser.handleInput(keys.enter);
+  assert.ok(!browser.render(100).join("\n").includes(`\x1b[${ui.backgroundColor}m`));
+  browser.handleInput(keys.escape);
+  assertBackground(100, "reviewer (project)");
+});
+
+test("truncated wide labels color padding separately without rewriting the content reset", () => {
+  const ui = new BrowserUI();
+  ui.terminal.rows = 15;
+  const data = content(8);
+  for (const item of data.items) item.label = "中文🙂e\u0301".repeat(30);
+  const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
+  for (const width of [80, 40, 28]) {
+    const rows = browser.render(width);
+    const selected = rows.find((line) => stripTerminalSequences(line).includes("→"))!;
+    assert.match(selected, /\x1b\[0m\x1b\[49m\x1b\[44m +\x1b\[49m/,
+      "padding starts a fresh background after the unchanged truncation reset");
+    assert.ok(rows.every((line) => visibleWidth(line) <= width));
+    const information = rows.find((line) => stripTerminalSequences(line).includes("/8)"))!;
+    assert.ok(information, "the native scroll information remains present");
+    assert.ok(!information.includes(`\x1b[${ui.backgroundColor}m`));
+    browser.handleInput(keys.pageDown);
+  }
+});
+
 test("native list scroll information is preserved between a separate title and footer", () => {
   const ui = new BrowserUI();
   ui.terminal.rows = 15;

@@ -30,12 +30,14 @@ export class BrowserUI {
   readonly terminal = { rows: 30, columns: 120 };
   renderRequests = 0;
   color = 36;
+  backgroundColor = 44;
   beforeFactory?: () => void;
   beforeMount?: () => void;
   readonly keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
   readonly theme = {
     fg: (name: string, text: string) => `\x1b[${name === "accent" ? this.color : 90}m${text}\x1b[39m`,
-    bg: (_name: string, text: string) => text,
+    bg: (name: string, text: string) =>
+      `\x1b[${name === "selectedBg" ? this.backgroundColor : 40}m${text}\x1b[49m`,
     bold: (text: string) => text,
   } as unknown as Theme;
   readonly tui = {
