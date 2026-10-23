@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { ACTIVE_AGENT_ENTRY_TYPE } from "./active-agent.ts";
 import { isPathSafeSessionId, subagentSessionDir } from "./session-paths.ts";
+import { mapWithConcurrencyLimit } from "./utils.ts";
 
 export const MAX_SESSION_METADATA_BYTES = 8 * 1024 * 1024;
 export const SESSION_METADATA_CONCURRENCY = 4;
@@ -157,18 +158,15 @@ export async function scanSubagentSessions(
   const directory = await fs.realpath(candidate);
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile() && path.extname(entry.name) === ".jsonl");
-  let cursor = 0;
-  const sessions: SubagentSession[] = [];
-  await Promise.all(Array.from({ length: Math.min(SESSION_METADATA_CONCURRENCY, files.length) }, async () => {
-    while (cursor < files.length) {
-      const entry = files[cursor++];
-      try {
-        sessions.push(await inspectFile(path.join(directory, entry.name)));
-      } catch {
-        // Ignore individual files that disappear or cannot be inspected.
-      }
+  const inspected = await mapWithConcurrencyLimit(files, SESSION_METADATA_CONCURRENCY, async (entry) => {
+    try {
+      return await inspectFile(path.join(directory, entry.name));
+    } catch {
+      // Ignore individual files that disappear or cannot be inspected.
+      return undefined;
     }
-  }));
+  });
+  const sessions = inspected.filter((session): session is SubagentSession => session !== undefined);
   sessions.sort((a, b) => b.created - a.created || (a.fileName < b.fileName ? -1 : a.fileName > b.fileName ? 1 : 0));
   return { directory, sessions };
 }
