@@ -1,6 +1,6 @@
 /** List/detail overlays owned by ctx.ui.custom, with permission-prompt preemption. */
 
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
   Key,
@@ -318,4 +318,43 @@ export async function showSubagentBrowser(
   } finally {
     close();
   }
+}
+
+/** Registers browser commands that share a runtime-local interaction guard. */
+export class BrowserController {
+  private interactionActive = false;
+
+  constructor(private readonly pi: ExtensionAPI) {}
+
+  registerBrowser(
+    name: string,
+    description: string,
+    load: (ctx: ExtensionCommandContext) => BrowserContent,
+    subscribe?: (refresh: () => void) => () => void,
+  ): void {
+    this.pi.registerCommand(name, {
+      description,
+      handler: async (_args, ctx) => {
+        if (ctx.mode !== "tui") {
+          ctx.ui.notify(`${name} requires interactive TUI mode.`, "error");
+          return;
+        }
+        if (this.interactionActive) {
+          ctx.ui.notify("A subagent browser is already open.", "error");
+          return;
+        }
+        this.interactionActive = true;
+        try {
+          await showSubagentBrowser(this.pi, ctx, () => load(ctx), subscribe);
+        } finally {
+          this.interactionActive = false;
+        }
+      },
+    });
+  }
+}
+
+/** Create one controller per runtime and share it across browser command registrations. */
+export function createBrowserController(pi: ExtensionAPI): BrowserController {
+  return new BrowserController(pi);
 }

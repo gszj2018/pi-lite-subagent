@@ -1,10 +1,10 @@
 /** Slash-command orchestration. Commands remain available in inspection-only sessions. */
 
 import * as path from "node:path";
-import { type ExtensionAPI, type ExtensionCommandContext, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
-import { type BrowserContent, showSubagentBrowser, singleLineLabel } from "./subagent-browser.ts";
+import { type BrowserContent, createBrowserController, singleLineLabel } from "./subagent-browser.ts";
 import { type HistoryTask, registerSubagentHistory } from "./subagent-history.ts";
 import { appendDisplayItems, formatUsageStats } from "./subagent-rendering.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
@@ -97,36 +97,10 @@ function historyContent(tasks: HistoryTask[]): BrowserContent {
 }
 
 export function registerSubagentCommands(pi: ExtensionAPI, deps: Pick<SubagentRunnerDeps, "agentDir">): void {
-  let interactionActive = false;
+  const browserController = createBrowserController(pi);
   const history = registerSubagentHistory(pi);
-  const registerBrowser = (
-    name: string,
-    description: string,
-    load: (ctx: ExtensionCommandContext) => BrowserContent,
-    subscribe?: (refresh: () => void) => () => void,
-  ) => {
-    pi.registerCommand(name, {
-      description,
-      handler: async (_args, ctx) => {
-        if (ctx.mode !== "tui") {
-          ctx.ui.notify(`${name} requires interactive TUI mode.`, "error");
-          return;
-        }
-        if (interactionActive) {
-          ctx.ui.notify("A subagent browser is already open.", "error");
-          return;
-        }
-        interactionActive = true;
-        try {
-          await showSubagentBrowser(pi, ctx, () => load(ctx), subscribe);
-        } finally {
-          interactionActive = false;
-        }
-      },
-    });
-  };
-  registerBrowser("list-subagents", "Browse subagent definitions and their parsed metadata.",
+  browserController.registerBrowser("list-subagents", "Browse subagent definitions and their parsed metadata.",
     (ctx) => definitionContent(deps.agentDir, ctx.cwd, ctx.isProjectTrusted()));
-  registerBrowser("view-subagents", "Browse subagent execution status and results on the active branch.",
+  browserController.registerBrowser("view-subagents", "Browse subagent execution status and results on the active branch.",
     (ctx) => historyContent(history.read(ctx)), history.subscribe);
 }

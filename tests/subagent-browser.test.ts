@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, Text, TUI_KEYBINDINGS, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
   type BrowserContent,
+  createBrowserController,
   showSubagentBrowser,
   singleLineLabel,
   SubagentBrowser,
 } from "../extension/subagent-browser.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
-import { createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
+import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 
 const keys = {
   down: "\x1b[B", up: "\x1b[A", enter: "\r", escape: "\x1b", ctrlC: "\x03",
@@ -45,10 +47,10 @@ function hintText(rows: string[]): string {
   return rows.map((line) => line.replace(/^│|│$/g, "").replace(/\d+–\d+\/\d+/g, "").trim()).join(" ");
 }
 
-function interaction(t: TestContext) {
+function interaction(t: TestContext, options: ContextOptions = {}) {
   const pi = new MockPi();
   const ui = new BrowserUI();
-  const mock = createContext();
+  const mock = createContext(options);
   mock.ctx.ui.custom = ui.custom;
   t.after(() => {
     pi.events.emit("permissions:ui_prompt", {});
@@ -57,10 +59,122 @@ function interaction(t: TestContext) {
   return { pi, ui, ...mock };
 }
 
+function controlledInteraction(t: TestContext, options: ContextOptions = {}) {
+  const mock = interaction(t, options);
+  const controller = createBrowserController(mock.pi.api);
+  const invoke = (name: string) => mock.pi.commands.get(name)!.handler("", mock.ctx as unknown as ExtensionCommandContext);
+  return { ...mock, controller, invoke };
+}
+
 function assertReleased(pi: MockPi): void {
   assert.equal(pi.events.count("permissions:ui_prompt"), 0);
   assert.equal(pi.count("session_shutdown"), 0);
 }
+
+test("browser controllers reject non-TUI commands before loading or subscribing", async (t) => {
+  for (const mode of ["rpc", "json", "print"] as const) {
+    const f = controlledInteraction(t, { mode });
+    let loads = 0;
+    let subscriptions = 0;
+    f.controller.registerBrowser("test-browser", "Test browser.", () => {
+      loads++;
+      return content(1);
+    }, () => { subscriptions++; return () => {}; });
+    await f.invoke("test-browser");
+    assert.deepEqual(f.notifications, [{ message: "test-browser requires interactive TUI mode.", type: "error" }]);
+    assert.equal(loads, 0);
+    assert.equal(subscriptions, 0);
+    assert.equal(f.ui.interactions.length, 0);
+    assertReleased(f.pi);
+  }
+});
+
+test("browser commands share their controller's guard and release it after user, permission or shutdown cancellation", async (t) => {
+  const f = controlledInteraction(t);
+  let loads = 0;
+  let detached = 0;
+  const load = (ctx: ExtensionCommandContext) => {
+    assert.equal(ctx, f.ctx);
+    loads++;
+    return content(1);
+  };
+  f.controller.registerBrowser("first-browser", "First browser.", load);
+  f.controller.registerBrowser("second-browser", "Second browser.", load, () => () => { detached++; });
+  const cancellations = ["user", "permission", "shutdown"] as const;
+  for (const [index, cancellation] of cancellations.entries()) {
+    const before = f.ui.interactions.length;
+    const first = f.invoke("first-browser");
+    await flushPromises();
+    const loaded = loads;
+    await f.invoke("second-browser");
+    assert.equal(loads, loaded, "a rejected command does not load its content");
+    assert.equal(f.ui.interactions.length, before + 1);
+    assert.deepEqual(f.notifications.pop(), { message: "A subagent browser is already open.", type: "error" });
+    if (cancellation === "user") f.ui.interactions.at(-1)!.component!.handleInput!(keys.ctrlC);
+    else if (cancellation === "permission") f.pi.events.emit("permissions:ui_prompt", {});
+    else await f.pi.emitLifecycle("session_shutdown", f.ctx);
+    await first;
+    assertReleased(f.pi);
+
+    const second = f.invoke("second-browser");
+    await flushPromises();
+    assert.equal(f.ui.interactions.length, before + 2);
+    assert.equal(f.ui.interactions.at(-1)!.mounted, true);
+    f.ui.interactions.at(-1)!.component!.handleInput!(keys.ctrlC);
+    await second;
+    assert.equal(detached, index + 1, "the controller forwards the optional live subscription");
+    assertReleased(f.pi);
+  }
+});
+
+test("browser controllers release the guard after empty content, loading errors and custom-UI failures", async (t) => {
+  for (const failure of ["empty", "load", "ui"] as const) {
+    const f = controlledInteraction(t);
+    let recovered = false;
+    f.controller.registerBrowser("test-browser", "Test browser.", () => {
+      if (!recovered && failure === "load") throw new Error("load failed");
+      return content(!recovered && failure === "empty" ? 0 : 1);
+    });
+    if (failure === "ui") f.ctx.ui.custom = async () => { throw new Error("UI failed"); };
+    await f.invoke("test-browser");
+    assert.equal(f.ui.interactions.length, 0);
+    assert.equal(f.notifications.at(-1)!.type, failure === "empty" ? "info" : "error");
+    assert.match(f.notifications.at(-1)!.message, failure === "empty" ? /No test items/ : /failed/);
+    assertReleased(f.pi);
+
+    recovered = true;
+    f.ctx.ui.custom = f.ui.custom;
+    const opening = f.invoke("test-browser");
+    await flushPromises();
+    assert.equal(f.ui.interactions.length, 1);
+    assert.equal(f.ui.interactions[0].mounted, true);
+    f.ui.interactions[0].component!.handleInput!(keys.ctrlC);
+    await opening;
+    assertReleased(f.pi);
+  }
+});
+
+test("separate browser controllers keep independent guards even when using the same extension API", async (t) => {
+  const f = controlledInteraction(t);
+  const other = createBrowserController(f.pi.api);
+  f.controller.registerBrowser("first-browser", "First browser.", () => content(1));
+  other.registerBrowser("other-browser", "Other browser.", () => content(1));
+  const first = f.invoke("first-browser");
+  await flushPromises();
+  const second = f.invoke("other-browser");
+  await flushPromises();
+  assert.equal(f.ui.interactions.length, 2);
+  assert.ok(f.ui.interactions.every((interaction) => interaction.mounted));
+  assert.deepEqual(f.notifications, []);
+  f.ui.interactions[1].component!.handleInput!(keys.ctrlC);
+  await second;
+  await f.invoke("first-browser");
+  assert.deepEqual(f.notifications.pop(), { message: "A subagent browser is already open.", type: "error" });
+  assert.equal(f.ui.interactions.length, 2, "closing another controller cannot release the first one's guard");
+  f.ui.interactions[0].component!.handleInput!(keys.ctrlC);
+  await first;
+  assertReleased(f.pi);
+});
 
 test("labels remove terminal sequences and flatten control characters without losing wide text", () => {
   assert.equal(singleLineLabel(" name\x1b[31m红\x1b[0m\nnext\tend\x07 "), "name红 next end");
