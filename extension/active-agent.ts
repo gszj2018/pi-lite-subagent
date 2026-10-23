@@ -23,9 +23,10 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike,
 
   // Registered unconditionally: opening a subagent session file from another
   // session must render the marker too; headless modes never call the renderer.
-  pi.registerEntryRenderer<ActiveAgentEntryData>(ACTIVE_AGENT_ENTRY_TYPE, (entry, _options, theme) => {
+  pi.registerEntryRenderer(ACTIVE_AGENT_ENTRY_TYPE, (entry, _options, theme) => {
     const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-    const name = entry.data?.name ?? "unknown";
+    const data = entry.data !== null && typeof entry.data === "object" && !Array.isArray(entry.data) ? entry.data as Record<string, unknown> : undefined;
+    const name = data && typeof data.name === "string" ? data.name : "unknown";
     box.addChild(new Text(`${theme.fg("accent", `${theme.bold("Subagent session")} (inspection only) ·`)} ${name}`, 0, 0));
     return box;
   });

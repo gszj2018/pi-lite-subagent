@@ -60,6 +60,46 @@ test("usage, read ranges and normal compact tool summaries keep their existing f
     "2 turns ↑1.2k ↓20k R4 $0.1000 p/m");
 });
 
+test("tool call rendering validates parameters before rendering either mode", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
+  const pi = new MockPi();
+  const spawnMock = new MockSpawn();
+  registerSubagentTool(pi.api, {
+    agentDir, spawn: spawnMock.spawn, env: {}, piLaunch: { execPath: "/fake/pi" },
+    extensionArgs: { extensions: [], noExtensions: false },
+  });
+  const tool = pi.tools.get("subagent");
+  const theme = new BrowserUI().theme;
+  const task = { agent: "worker", task: "use {previous} output" };
+  const invalid: unknown[] = [
+    undefined, null, [], {},
+    { tasks: [task], mode: "invalid" }, { tasks: [task], agentScope: "invalid" },
+  ];
+  for (const mode of [undefined, "parallel", "chain"]) {
+    for (const tasks of [
+      undefined, null, [], [null], [{ agent: 7, task: "t" }], [{ agent: "worker" }],
+      [{ agent: "worker", task: 42 }], [task, task, task, { agent: "worker", task: 42 }],
+    ]) invalid.push({ mode, tasks });
+    for (const expanded of [false, true]) {
+      const component = tool.renderCall({ mode, tasks: [task] }, theme, { expanded });
+      const text = component.render(100).map(stripTerminalSequences).join("\n");
+      assert.match(text, mode === "chain" ? /chain \(1 steps\)/ : /parallel \(1 tasks\)/);
+      assert.match(text, /worker/);
+      assert.match(text, /\[user\]/);
+      if (mode === "chain" && !expanded) assert.doesNotMatch(text, /\{previous\}/);
+      else assert.match(text, /\{previous\}/);
+    }
+  }
+  for (const args of invalid) {
+    for (const expanded of [false, true]) {
+      assert.throws(() => tool.renderCall(args, theme, { expanded }), {
+        name: "TypeError", message: "Invalid subagent tool parameters.",
+      });
+    }
+  }
+  assert.equal(spawnMock.calls.length, 0);
+});
+
 test("tool expanded results still render all ordered items exactly once using the shared helpers", async (t) => {
   const { agentDir } = await withTempUserAgents(t);
   const pi = new MockPi();
@@ -98,9 +138,40 @@ test("tool results with missing, invalid or empty details fall back to call-leve
       assert.equal(component.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "call output");
     }
   }
-  const empty = tool.renderResult({ ...invalid, content: [] }, { expanded: true }, theme, {});
-  assert.equal(empty.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "(no output)");
+  for (const [content, expected] of [
+    [[], "(no output)"],
+    [[{ type: "text", text: "" }], ""],
+    [[{ type: "text", text: "first" }, { type: "text", text: "second" }], "first"],
+    [[{ type: "image", data: "unused", mimeType: "image/png" }, { type: "text", text: "later" }], "(no output)"],
+  ] as const) {
+    const component = tool.renderResult({ ...invalid, content }, { expanded: true }, theme, {});
+    assert.equal(component.render(100).map(stripTerminalSequences).join("\n").trimEnd(), expected);
+  }
   assert.equal(spawnMock.calls.length, 0);
+});
+
+test("tool result text fallback shows no output for non-array content or invalid text", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
+  const pi = new MockPi();
+  registerSubagentTool(pi.api, {
+    agentDir, spawn: new MockSpawn().spawn, env: {}, piLaunch: { execPath: "/fake/pi" },
+    extensionArgs: { extensions: [], noExtensions: false },
+  });
+  const tool = pi.tools.get("subagent");
+  const theme = new BrowserUI().theme;
+  for (const details of [undefined, { invalid: true }, resultEntry("c", []).message.details]) {
+    for (const expanded of [false, true]) {
+      for (const content of [undefined, null, "text", {}, { 0: { type: "text", text: "array-like" } }]) {
+        const component = tool.renderResult({ details, content }, { expanded }, theme, {});
+        assert.equal(component.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "(no output)");
+      }
+      for (const text of [undefined, null, 42, false, {}, []]) {
+        const content = [{ type: "text", text }, { type: "text", text: "later valid text" }];
+        const component = tool.renderResult({ details, content }, { expanded }, theme, {});
+        assert.equal(component.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "(no output)");
+      }
+    }
+  }
 });
 
 test("compact and running tool results retain their capped previews rather than the full expanded body", async (t) => {

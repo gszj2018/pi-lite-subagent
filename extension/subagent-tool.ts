@@ -19,6 +19,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { discoverAgents } from "./agents.ts";
 import { getDisplayItems, parseSubagentDetails } from "./result-parsing.ts";
 import { emptyUsageStats, isFailedResult, runSingleAgent } from "./run-agent.ts";
@@ -246,9 +247,10 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
     },
 
     renderCall(args, theme, { expanded }) {
+      if (!Value.Check(SubagentParams, args)) throw new TypeError("Invalid subagent tool parameters.");
       const scope: AgentScope = args.agentScope ?? "user";
       const mode: ExecutionMode = args.mode ?? "parallel";
-      const tasks: { agent: string; task: string }[] = Array.isArray(args.tasks) ? args.tasks : [];
+      const tasks = args.tasks;
       if (mode === "chain") {
         let text =
           theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -283,8 +285,8 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
     renderResult(result, { expanded }, theme, _context) {
       const details = parseSubagentDetails(result.details);
       if (!details || details.results.length === 0) {
-        const text = result.content[0];
-        return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+        const text = Array.isArray(result.content) ? result.content[0] : undefined;
+        return new Text(text?.type === "text" && typeof text.text === "string" ? text.text : "(no output)", 0, 0);
       }
 
       const renderDisplayItems = (items: DisplayItem[], limit?: number) => {

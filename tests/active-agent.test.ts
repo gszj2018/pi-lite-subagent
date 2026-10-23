@@ -122,6 +122,24 @@ test("only a nonempty committed stack protects markerless sessions without check
   assert.equal(state.pending, pending);
 });
 
+test("the entry renderer falls back to unknown for invalid data while marker presence still protects input", async () => {
+  const pi = new MockPi();
+  registerActiveAgentMarker(pi.api, {}, { frames: [] });
+  const renderer = pi.entryRenderers.get(ACTIVE_AGENT_ENTRY_TYPE);
+  assert.ok(renderer);
+  for (const data of [
+    undefined, null, 42, "worker", false, [], {}, { name: undefined }, { name: null }, { name: 7 }, { name: {} },
+  ]) {
+    const entry = { ...markerEntry, data };
+    const component = renderer(entry, { expanded: false }, mockTheme()) as { render: (width: number) => string[] };
+    assert.match(component.render(80).join("\n"), /Subagent session \(inspection only\) · unknown/);
+    const { ctx } = createContext({ entries: [entry] });
+    await pi.emitLifecycle("session_start", ctx);
+    assert.deepEqual(await pi.emitLifecycle("input", ctx, { text: "blocked", source: "interactive" }),
+      [{ action: "handled" }]);
+  }
+});
+
 test("the entry renderer shows the agent name", () => {
   const pi = new MockPi();
   registerActiveAgentMarker(pi.api, {}, { frames: [] });
