@@ -17,7 +17,7 @@ export function currentSessionFile(ctx: ExtensionContext): string {
   return fs.realpathSync(file);
 }
 
-export function requireNavigationIdle(ctx: ExtensionContext): void {
+function requireNavigationIdle(ctx: ExtensionContext): void {
   if (!ctx.isIdle() || ctx.hasPendingMessages()) {
     throw new Error("Session navigation requires an idle agent with no pending messages.");
   }
