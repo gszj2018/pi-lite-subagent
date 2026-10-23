@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getNavigationState } from "../extension/shared-state.ts";
-import { clearSharedState } from "./helpers/cleanup.ts";
 import type { NavigationState } from "../extension/types.ts";
+
+function clearSharedState() {
+  delete globalThis.__github_gszj2018_piLiteSubagent_sharedState;
+}
 
 test("getNavigationState() gets a properly initialized global singleton", async (t) => {
   clearSharedState();

@@ -7,23 +7,25 @@ export interface SharedState {
   navigationStateV1: NavigationState;
 }
 
-function getOrCreateSharedState(): SharedState {
-  const sharedState = globalThis.__github_gszj2018_piLiteSubagent_sharedState;
-  if (!sharedState) {
-    return globalThis.__github_gszj2018_piLiteSubagent_sharedState = {
-      navigationStateV1: { frames: [] },
-    };
-  }
-
-  return sharedState;
-}
-
 /** Return the stable navigation object; lifecycle handlers update its fields in place. */
 export function getNavigationState(): NavigationState {
-  return getOrCreateSharedState().navigationStateV1;
+  return getSharedState().navigationStateV1;
 }
 
 declare global {
   // noinspection ES6ConvertVarToLetConst
   var __github_gszj2018_piLiteSubagent_sharedState: SharedState | undefined;
 }
+
+function initSharedState(): SharedState {
+  // all shared states are initialized here
+  const sharedState: SharedState = {
+    navigationStateV1: { frames: [] },
+  }
+  return globalThis.__github_gszj2018_piLiteSubagent_sharedState = sharedState;
+}
+
+function getSharedState(): SharedState {
+  return globalThis.__github_gszj2018_piLiteSubagent_sharedState ?? initSharedState();
+}
+
