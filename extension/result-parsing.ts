@@ -2,10 +2,7 @@
 
 import { Value } from "typebox/value";
 import { SubagentDetailsSchema } from "./result-details.ts";
-import type { SubagentDetails } from "./types.ts";
-
-export type DisplayItem = { type: "text"; text: string } |
-  { type: "toolCall"; name: string; args: Record<string, unknown> };
+import type { DisplayItem, SubagentDetails } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)

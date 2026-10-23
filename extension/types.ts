@@ -68,6 +68,10 @@ export type AgentScope = Static<typeof AgentScopeSchema>;
 /** Structured details attached to the tool result, used for TUI rendering and state reconstruction. */
 export type SubagentDetails = Static<typeof SubagentDetailsSchema>;
 
+/** Ordered assistant text or tool-call data used by result rendering and history snapshots. */
+export type DisplayItem = { type: "text"; text: string } |
+  { type: "toolCall"; name: string; args: Record<string, unknown> };
+
 /** Streaming update callback for a running tool call. */
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 

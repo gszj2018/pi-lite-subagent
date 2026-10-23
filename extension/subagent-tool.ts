@@ -20,12 +20,13 @@ import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverAgents } from "./agents.ts";
-import { type DisplayItem, getDisplayItems, parseSubagentDetails } from "./result-parsing.ts";
+import { getDisplayItems, parseSubagentDetails } from "./result-parsing.ts";
 import { emptyUsageStats, isFailedResult, runSingleAgent } from "./run-agent.ts";
 import { appendDisplayItems, formatToolCall, formatUsageStats } from "./subagent-rendering.ts";
 import { truncateSubagentOutput } from "./truncation.ts";
 import type {
   DispatchDefaults,
+  DisplayItem,
   OnUpdateCallback,
   SingleResult,
   SubagentDetails,

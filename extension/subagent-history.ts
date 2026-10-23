@@ -1,8 +1,8 @@
 /** Branch-authoritative subagent history plus a transient, session-local execution observation cache. */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type DisplayItem, getDisplayItems, getTextContent, parseSubagentDetails } from "./result-parsing.ts";
-import type { SingleResult } from "./types.ts";
+import { getDisplayItems, getTextContent, parseSubagentDetails } from "./result-parsing.ts";
+import type { DisplayItem, SingleResult } from "./types.ts";
 
 export type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
   "Skipped" | "Not executed" | "Unknown / interrupted" | "Result details unavailable";

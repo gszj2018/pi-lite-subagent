@@ -3,7 +3,7 @@
 import * as os from "node:os";
 import { getMarkdownTheme, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import type { DisplayItem } from "./result-parsing.ts";
+import type { DisplayItem } from "./types.ts";
 
 export function formatTokens(count: number): string {
   if (count < 1000) return count.toString();
