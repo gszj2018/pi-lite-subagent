@@ -14,7 +14,9 @@ import { registerActiveAgentMarker } from "./active-agent.ts";
 import { isSubagentToolAllowed, registerSessionEnv } from "./env-vars.ts";
 import { registerSessionNavigation } from "./session-navigation.ts";
 import { getNavigationState } from "./shared-state.ts";
-import { registerSubagentCommands } from "./subagent-commands.ts";
+import { createBrowserController } from "./subagent-browser.ts";
+import { registerSubagentHistory } from "./subagent-history.ts";
+import { registerSubagentList } from "./subagent-list.ts";
 import { registerSubagentTool } from "./subagent-tool.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
 
@@ -35,7 +37,9 @@ export default function setup(pi: ExtensionAPI): void {
   registerSessionEnv(pi, deps.env);
   registerSessionNavigation(pi, navigationState);
   registerActiveAgentMarker(pi, deps.env, navigationState);
-  registerSubagentCommands(pi, deps);
+  const browserController = createBrowserController(pi);
+  registerSubagentList(browserController, deps);
+  registerSubagentHistory(pi, browserController);
   if (isSubagentToolAllowed(deps.env)) {
     // Subagent sessions are leaf nodes and never register the tool.
     registerSubagentTool(pi, deps);

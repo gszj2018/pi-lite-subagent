@@ -5,15 +5,15 @@ import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
-import { registerSubagentCommands } from "../extension/subagent-commands.ts";
-import { registerSessionNavigation } from "../extension/session-navigation.ts";
+import { createBrowserController } from "../extension/subagent-browser.ts";
+import { registerSubagentList } from "../extension/subagent-list.ts";
 import type { NavigationState } from "../extension/types.ts";
 import { agentMarkdown, makeTempDir, writeAgentFile } from "./helpers/agents-fixture.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 
 async function fixture(t: TestContext, options: ContextOptions = {}) {
-  const tmp = await makeTempDir("pi-lite-command-");
+  const tmp = await makeTempDir("pi-lite-list-");
   t.after(tmp.cleanup);
   const agentDir = path.join(tmp.dir, "agent-dir");
   const project = path.join(tmp.dir, "project");
@@ -27,8 +27,7 @@ async function fixture(t: TestContext, options: ContextOptions = {}) {
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
   const navigationState: NavigationState = { frames: [] };
-  registerSessionNavigation(pi.api, navigationState);
-  registerSubagentCommands(pi.api, { agentDir });
+  registerSubagentList(createBrowserController(pi.api), { agentDir });
   t.after(() => {
     pi.events.emit("permissions:ui_prompt", {});
     ui.cancelAll();
@@ -64,9 +63,6 @@ test("list-subagents keeps same-name user and project agents, grouped in stable 
   }
   assert.deepEqual(names.map((name) => list.indexOf(name)), names.map((name) => list.indexOf(name)).sort((a, b) => a - b));
   assert.doesNotMatch(list, /invalid \(project\)/, "discovery's invalid-definition filtering is preserved");
-  assert.deepEqual([...f.pi.commands.keys()].sort(), [
-    "list-subagents", "return-to-parent-session", "switch-to-subagent-session", "view-subagents",
-  ]);
   f.press("\x1b");
   await opening;
 });
@@ -154,17 +150,6 @@ test("the command remains usable while busy and inside an inspection-only sessio
   await opening;
 });
 
-test("non-TUI modes report an error without opening a browser or subscribing interaction handlers", async (t) => {
-  for (const mode of ["rpc", "json", "print"] as const) {
-    const f = await fixture(t, { mode });
-    await f.invoke();
-    assert.equal(f.ui.interactions.length, 0);
-    assert.deepEqual(f.notifications, [{ message: "list-subagents requires interactive TUI mode.", type: "error" }]);
-    assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-    assert.equal(f.pi.count("session_shutdown"), 2, "only history and navigation lifecycle observers remain");
-  }
-});
-
 test("an empty discovery notifies without opening an empty list", async (t) => {
   const f = await fixture(t);
   await f.invoke();
@@ -173,26 +158,6 @@ test("an empty discovery notifies without opening an empty list", async (t) => {
     message: "No subagent definitions found [user only: project not trusted].", type: "info",
   }]);
   assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-});
-
-test("the command rejects overlapping browsers and releases its guard after permission cancellation", async (t) => {
-  const f = await fixture(t);
-  await writeAgentFile(path.join(f.agentDir, "agents"), "worker.md", agentMarkdown({ name: "worker", description: "d" }));
-  const first = f.invoke();
-  await flushPromises();
-  await f.invoke();
-  assert.equal(f.ui.interactions.length, 1);
-  assert.deepEqual(f.notifications.pop(), { message: "A subagent browser is already open.", type: "error" });
-  f.pi.events.emit("permissions:ui_prompt", {});
-  assert.equal(f.ui.interactions[0].closed, true);
-  await first;
-  const second = f.invoke();
-  await flushPromises();
-  assert.equal(f.ui.interactions.length, 2);
-  f.press("\x03");
-  await second;
-  assert.equal(f.pi.events.count("permissions:ui_prompt"), 0);
-  assert.equal(f.pi.count("session_shutdown"), 2, "closing dialogs leaves history and navigation observers");
 });
 
 test("discovery errors are caught at the command boundary and do not leave a stale interaction guard", async (t) => {

@@ -1,15 +1,18 @@
-/** Branch-authoritative subagent history plus a transient, session-local execution observation cache. */
+/** Branch-authoritative history, transient execution observations and the view-subagents browser command. */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { getDisplayItems, getTextContent, parseSubagentDetails } from "./result-parsing.ts";
+import type { BrowserContent, BrowserController } from "./subagent-browser.ts";
+import { appendDisplayItems, formatUsageStats } from "./subagent-rendering.ts";
 import type { DisplayItem, SingleResult } from "./types.ts";
 
-export type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
+type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
   "Skipped" | "Not executed" | "Unknown / interrupted" | "Result details unavailable";
 
-export type HistoryResult = Omit<SingleResult, "messages" | "agentSource"> & { items: DisplayItem[] };
+type HistoryResult = Omit<SingleResult, "messages" | "agentSource"> & { items: DisplayItem[] };
 
-export interface HistoryTask {
+interface HistoryTask {
   id: string;
   toolCallId: string;
   index: number;
@@ -139,12 +142,51 @@ function buildTasks(calls: HistoryCall[], results: ReadonlyMap<string, CallSnaps
   });
 }
 
-export interface SubagentHistory {
-  read(ctx: ExtensionContext): HistoryTask[];
-  subscribe(listener: () => void): () => void;
+function historyDetail(task: HistoryTask, theme: Theme): Container {
+  const container = new Container();
+  const field = (name: string, value: string) => {
+    container.addChild(new Text(theme.fg("muted", `${name}: `) + stripTerminalSequences(value), 0, 0));
+  };
+  field("Status", task.status);
+  field("Mode", task.mode === "chain" ? `chain · Step ${task.index + 1}` : "parallel");
+  field("Task", task.task);
+  const result = task.result;
+  if (result) {
+    if (result.task !== task.task) field("Executed task", result.task);
+    if (result.model) field("Model", result.model);
+    appendDisplayItems(container, result.items, theme);
+    if (result.errorMessage) field("Error", result.errorMessage);
+    const failed = task.status === "Failed" || task.status === "Aborted";
+    if (result.stderr && (failed || result.items.length === 0)) field("Stderr", result.stderr);
+    if (result.items.length === 0 && !result.errorMessage && !result.stderr) {
+      container.addChild(new Text("(no output)", 0, 0));
+    }
+    const usage = formatUsageStats(result.usage);
+    if (usage) container.addChild(new Text(theme.fg("dim", usage), 0, 0));
+  } else {
+    container.addChild(new Spacer(1));
+    container.addChild(new Text(stripTerminalSequences(task.callOutput) || "(no output available)", 0, 0));
+  }
+  return container;
 }
 
-export function registerSubagentHistory(pi: ExtensionAPI): SubagentHistory {
+function historyContent(tasks: HistoryTask[]): BrowserContent {
+  return {
+    title: "Subagent executions [active branch]",
+    emptyMessage: "No subagent calls found on the active branch.",
+    items: tasks.map((task) => {
+      const status = task.status === "Completed" ? "" : ` (${task.status})`;
+      return {
+        id: task.id,
+        label: `${task.agent}${status}`,
+        description: task.mode === "chain" ? task.task.replace(/\{previous\}/g, "").trim() : task.task,
+        createDetail: (theme) => historyDetail(task, theme),
+      };
+    }),
+  };
+}
+
+export function registerSubagentHistory(pi: ExtensionAPI, browserController: BrowserController): void {
   let sessionId: string | undefined;
   let acceptingEvents = true;
   const live = new Map<string, CallSnapshot>();
@@ -215,8 +257,7 @@ export function registerSubagentHistory(pi: ExtensionAPI): SubagentHistory {
     reconcile(ctx);
   });
 
-  return {
-    read,
-    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-  };
+  browserController.registerBrowser("view-subagents", "Browse subagent execution status and results on the active branch.",
+    (ctx) => historyContent(read(ctx)),
+    (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; });
 }

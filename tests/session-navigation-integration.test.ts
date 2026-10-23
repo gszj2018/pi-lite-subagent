@@ -9,7 +9,9 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { registerActiveAgentMarker } from "../extension/active-agent.ts";
 import { PARENT_SESSION_ENV, registerSessionEnv } from "../extension/env-vars.ts";
 import { registerSessionNavigation } from "../extension/session-navigation.ts";
-import { registerSubagentCommands } from "../extension/subagent-commands.ts";
+import { createBrowserController } from "../extension/subagent-browser.ts";
+import { registerSubagentHistory } from "../extension/subagent-history.ts";
+import { registerSubagentList } from "../extension/subagent-list.ts";
 import { MAX_SESSION_METADATA_BYTES, validateSessionFile } from "../extension/subagent-sessions.ts";
 import type { NavigationState, ProcessEnvLike } from "../extension/types.ts";
 import { agentMarkdown, writeAgentFile } from "./helpers/agents-fixture.ts";
@@ -55,7 +57,9 @@ async function fixture(t: TestContext) {
     registerSessionEnv(pi.api, env);
     registerSessionNavigation(pi.api, state);
     registerActiveAgentMarker(pi.api, env, state);
-    registerSubagentCommands(pi.api, { agentDir });
+    const browserController = createBrowserController(pi.api);
+    registerSubagentList(browserController, { agentDir });
+    registerSubagentHistory(pi.api, browserController);
     const runtime = { pi, ui, ctx, options, notifications: mock.notifications, alive: true };
     runtimes.push(runtime);
     ctx.switchSession = async (file) => {
@@ -306,7 +310,7 @@ test("integration: shutdown during scan or selection prevents late UI and releas
   assert.equal(runtime.pi.events.count("permissions:ui_prompt"), 0);
 });
 
-test("integration: browser and navigation guards are independent but each module rejects overlapping commands", async (t) => {
+test("integration: browser and navigation guards are independent but each rejects overlapping commands", async (t) => {
   const f = await fixture(t);
   await f.child();
   const opening = await f.openPicker();
@@ -321,7 +325,7 @@ test("integration: browser and navigation guards are independent but each module
   assert.equal(picker.closed, false, "opening a browser does not cancel session selection");
   assert.equal(browser.closed, false);
   await f.invoke("view-subagents");
-  assert.equal(runtime.ui.interactions.length, 2, "the second browser remains blocked within its own module");
+  assert.equal(runtime.ui.interactions.length, 2, "the second browser remains blocked by the shared browser controller");
   assert.equal(runtime.notifications.filter((notice) => notice.type === "error").length, 3);
   browser.component!.handleInput!("\x1b"); await browsing;
   assert.equal(picker.closed, false, "closing a browser does not release or close navigation");

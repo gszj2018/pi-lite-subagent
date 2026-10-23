@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { registerSubagentCommands } from "../extension/subagent-commands.ts";
+import { createBrowserController } from "../extension/subagent-browser.ts";
+import { registerSubagentHistory } from "../extension/subagent-history.ts";
+import { registerSubagentList } from "../extension/subagent-list.ts";
 import { registerSessionNavigation } from "../extension/session-navigation.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { withTempUserAgents } from "./helpers/agents-fixture.ts";
@@ -25,7 +27,9 @@ async function setup(t: TestContext, branch: unknown[], mode: "tui" | "rpc" | "j
   const ctx = mock.ctx as unknown as ExtensionCommandContext;
   ctx.ui.custom = ui.custom;
   registerSessionNavigation(pi.api, { frames: [] });
-  registerSubagentCommands(pi.api, { agentDir });
+  const browserController = createBrowserController(pi.api);
+  registerSubagentList(browserController, { agentDir });
+  registerSubagentHistory(pi.api, browserController);
   t.after(async () => {
     await pi.emitLifecycle("session_shutdown", ctx);
     ui.cancelAll();
