@@ -7,7 +7,6 @@
 
 import type { spawn } from "node:child_process";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Message } from "@earendil-works/pi-ai";
 
 /** Compatible with `node:child_process.spawn`; index.ts injects the real implementation, tests inject a mock. */
 export type SpawnFunction = typeof spawn;
@@ -74,7 +73,7 @@ export interface SingleResult {
   task: string;
   /** Process exit code; `undefined` while the task is still running. */
   exitCode: number | undefined;
-  messages: Message[];
+  messages: unknown[];
   stderr: string;
   usage: UsageStats;
   model?: string;

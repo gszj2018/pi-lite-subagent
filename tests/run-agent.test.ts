@@ -136,7 +136,7 @@ test("runSingleAgent aggregates usage and captures stop metadata", async (t) => 
     },
   ]);
   const { ctx } = createContext({ cwd: projectDir });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
@@ -166,7 +166,7 @@ test("runSingleAgent short-circuits unknown agents without spawning", async (t) 
   const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn();
   const { ctx } = createContext({ cwd: projectDir });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent({ name: "known" })],
@@ -189,7 +189,7 @@ test("runSingleAgent reports non-zero exits and collects stderr", async (t) => {
     { stderr: "boom\n", exitCode: 7, stdoutLines: [messageEndEvent(assistantMessage("partial"))] },
   ]);
   const { ctx } = createContext({ cwd: projectDir });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],
@@ -208,7 +208,7 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async (t
   const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{}]);
   const { ctx } = createContext({ cwd: projectDir });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent({ systemPrompt: "You are helpful." })],
@@ -329,7 +329,7 @@ test("runSingleAgent spawns with the built child env", async (t) => {
   const { agentDir, projectDir } = await withTempUserAgents(t);
   const spawnMock = new MockSpawn([{ stdoutLines: [messageEndEvent(assistantMessage("ok"))] }]);
   const { ctx } = createContext({ cwd: projectDir });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: { ...makeDeps(spawnMock, agentDir), env: { [PARENT_SESSION_ENV]: "sess-root", PATH: "/bin" } },
     ctx,
     agents: [makeAgent()],
@@ -376,7 +376,7 @@ test("runSingleAgent persists subagent sessions under the parent session dir", a
   await fs.promises.mkdir(sessionDir);
   const spawnMock = new MockSpawn([{}]);
   const { ctx } = createContext({ cwd: projectDir, sessionDir, sessionId: "sess-7" });
-  const result = await runSingleAgent({
+  const { result } = await runSingleAgent({
     deps: makeDeps(spawnMock, agentDir),
     ctx,
     agents: [makeAgent()],

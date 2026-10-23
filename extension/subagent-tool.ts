@@ -20,7 +20,7 @@ import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverAgents } from "./agents.ts";
-import { emptyUsageStats, getFinalOutput, getResultOutput, isFailedResult, runSingleAgent } from "./run-agent.ts";
+import { emptyUsageStats, isFailedResult, runSingleAgent } from "./run-agent.ts";
 import { appendDisplayItems, type DisplayItem, formatToolCall, formatUsageStats, getDisplayItems } from "./subagent-rendering.ts";
 import { truncateSubagentOutput } from "./truncation.ts";
 import type {
@@ -161,7 +161,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
             }
             : undefined;
 
-          const result = await runSingleAgent({
+          const { result, output } = await runSingleAgent({
             deps,
             ctx,
             agents,
@@ -176,7 +176,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
           results.push(result);
 
           if (isFailedResult(result)) {
-            const errorMsg = await truncateSubagentOutput(getResultOutput(result));
+            const errorMsg = await truncateSubagentOutput(output);
             return {
               content: [{
                 type: "text",
@@ -186,10 +186,10 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
               isError: true,
             };
           }
-          previousOutput = getFinalOutput(result.messages);
+          previousOutput = output;
         }
         return {
-          content: [{ type: "text", text: await truncateSubagentOutput(getFinalOutput(results[results.length - 1]!.messages) || "(no output)") }],
+          content: [{ type: "text", text: await truncateSubagentOutput(previousOutput || "(no output)") }],
           details: makeDetails(results),
         };
       }
@@ -216,8 +216,8 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         }
       };
 
-      const results = await mapWithConcurrencyLimit(tasks, MAX_CONCURRENCY, async (t, index) => {
-        const result = await runSingleAgent({
+      const runResults = await mapWithConcurrencyLimit(tasks, MAX_CONCURRENCY, async (t, index) => {
+        const { result, output } = await runSingleAgent({
           deps,
           ctx,
           agents,
@@ -236,13 +236,15 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         });
         allResults[index] = result;
         emitParallelUpdate();
-        return result;
+        return { result, output };
       });
 
+      const results = runResults.map((r) => r.result);
       const successCount = results.filter((r) => !isFailedResult(r)).length;
       const summaries = await Promise.all(
-        results.map(async (r) => {
-          const output = await truncateSubagentOutput(getResultOutput(r));
+        runResults.map(async (run) => {
+          const r = run.result;
+          const output = await truncateSubagentOutput(run.output);
           const status = isFailedResult(r)
             ? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
             : "completed";

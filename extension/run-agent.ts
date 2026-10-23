@@ -23,6 +23,7 @@ import type {
   SubagentRunnerDeps,
   UsageStats,
 } from "./types.ts";
+import type { Message } from "@earendil-works/pi-ai";
 
 export { isPathSafeSessionId } from "./session-paths.ts";
 
@@ -30,9 +31,15 @@ export function emptyUsageStats(): UsageStats {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
 }
 
-export function getFinalOutput(messages: SingleResult["messages"]): string {
+/**
+ * Returns the final output of a conversation, or an empty string if none.
+ * Can only be called on messages of newly generated results, not old/history results from sessions.
+ * NO external usage outside this file.
+ */
+function getFinalOutput(messages: readonly unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
+    // Newly generated session data is trusted, so we don't need to check.
+    const msg = messages[i] as Message;
     if (msg.role === "assistant") {
       for (const part of msg.content) {
         if (part.type === "text") return part.text;
@@ -42,16 +49,21 @@ export function getFinalOutput(messages: SingleResult["messages"]): string {
   return "";
 }
 
-export function isFailedResult(result: SingleResult): boolean {
-  if (result.exitCode === undefined) return false;
-  return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
-}
-
-export function getResultOutput(result: SingleResult): string {
+/**
+ * Returns the final output of a conversation, or error message for failed results, or "(no output)" if none.
+ * Can only be called on messages of newly generated results, not old/history results from sessions.
+ * NO external usage outside this file.
+ */
+function getResultOutput(result: SingleResult): string {
   if (isFailedResult(result)) {
     return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
   }
   return getFinalOutput(result.messages) || "(no output)";
+}
+
+export function isFailedResult(result: SingleResult): boolean {
+  if (result.exitCode === undefined) return false;
+  return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
 }
 
 async function writePromptToTempFile(agentName: string, prompt: string): Promise<{ dir: string; filePath: string }> {
@@ -180,13 +192,18 @@ export interface RunSingleAgentOptions {
   makeDetails: (results: SingleResult[]) => SubagentDetails;
 }
 
-export async function runSingleAgent(options: RunSingleAgentOptions): Promise<SingleResult> {
+interface RunSingleAgentResult {
+  result: SingleResult;
+  output: string;
+}
+
+export async function runSingleAgent(options: RunSingleAgentOptions): Promise<RunSingleAgentResult> {
   const { deps, ctx, agents, agentName, task, dispatchDefaults, step, signal, onUpdate, makeDetails } = options;
   const agent = agents.find((a) => a.name === agentName);
 
   if (!agent) {
     const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
-    return {
+    const result: SingleResult = {
       agent: agentName,
       agentSource: "unknown",
       task,
@@ -196,6 +213,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
       usage: emptyUsageStats(),
       step,
     };
+    return { result, output: getResultOutput(result) };
   }
 
   const model = agent.model ?? dispatchDefaults.model;
@@ -332,7 +350,7 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Si
       }
     });
     if (wasAborted) throw new Error("Subagent was aborted");
-    return currentResult;
+    return { result: currentResult, output: getResultOutput(currentResult) };
   } finally {
     if (tmpPromptPath)
       try {
