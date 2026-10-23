@@ -7,6 +7,8 @@
 
 import type { spawn } from "node:child_process";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Static } from "typebox";
+import type { AgentScopeSchema, SingleResultSchema, SubagentDetailsSchema, UsageStatsSchema } from "./result-details.ts";
 
 /** Compatible with `node:child_process.spawn`; index.ts injects the real implementation, tests inject a mock. */
 export type SpawnFunction = typeof spawn;
@@ -56,41 +58,15 @@ export interface DispatchDefaults {
 }
 
 /** Aggregated token/cost statistics across a subagent run. */
-export interface UsageStats {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  contextTokens: number;
-  turns: number;
-}
+export type UsageStats = Static<typeof UsageStatsSchema>;
 
 /** Full result of one subagent run; kept complete even when model-facing text is truncated. */
-export interface SingleResult {
-  agent: string;
-  agentSource: "user" | "project" | "unknown";
-  task: string;
-  /** Process exit code; `undefined` while the task is still running. */
-  exitCode: number | undefined;
-  messages: unknown[];
-  stderr: string;
-  usage: UsageStats;
-  model?: string;
-  stopReason?: string;
-  errorMessage?: string;
-  step?: number;
-}
+export type SingleResult = Static<typeof SingleResultSchema>;
 
-export type AgentScope = "user" | "project" | "both";
+export type AgentScope = Static<typeof AgentScopeSchema>;
 
 /** Structured details attached to the tool result, used for TUI rendering and state reconstruction. */
-export interface SubagentDetails {
-  mode: "parallel" | "chain";
-  agentScope: AgentScope;
-  projectAgentsDir: string | null;
-  results: SingleResult[];
-}
+export type SubagentDetails = Static<typeof SubagentDetailsSchema>;
 
 /** Streaming update callback for a running tool call. */
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
