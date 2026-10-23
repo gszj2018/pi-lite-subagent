@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collectSubagentHistory, registerSubagentHistory } from "../extension/subagent-history.ts";
+import { registerSubagentHistory } from "../extension/subagent-history.ts";
 import { callEntry, resultEntry, singleResult, task } from "./helpers/history-fixture.ts";
 import { createContext, MockPi } from "./helpers/mocks.ts";
+
+function readHistory(branch: unknown[]) {
+  const pi = new MockPi();
+  const history = registerSubagentHistory(pi.api);
+  const { ctx } = createContext({ branch });
+  return history.read(ctx);
+}
 
 test("history orders both calls and their tasks newest first, including calls in one message", () => {
   const older = callEntry("older", [task("same", "repeat"), task("same", "repeat")]);
@@ -10,7 +17,7 @@ test("history orders both calls and their tasks newest first, including calls in
   newer.message.content.push(callEntry("last").message.content[0]);
   const branch = [older, { type: "compaction" }, newer, resultEntry("older", [], { isError: true, text: "blocked" })];
   const before = JSON.stringify(branch);
-  const history = collectSubagentHistory(branch);
+  const history = readHistory(branch);
   assert.deepEqual(history.map((item) => item.id), ["last:0", "newer:1", "newer:0", "older:1", "older:0"]);
   assert.deepEqual(history.map((item) => item.task), ["task", "second", "first", "repeat", "repeat"]);
   assert.equal(history[3].status, "Not executed");
@@ -19,7 +26,7 @@ test("history orders both calls and their tasks newest first, including calls in
 });
 
 test("results join by toolCallId rather than completion order or agent name", () => {
-  const history = collectSubagentHistory([
+  const history = readHistory([
     callEntry("a"), callEntry("b"),
     resultEntry("b", [singleResult({ model: "model-b" })]),
     resultEntry("a", [singleResult({ model: "model-a", exitCode: 7, stderr: "failure" })]),
@@ -30,7 +37,7 @@ test("results join by toolCallId rather than completion order or agent name", ()
 });
 
 test("chain results align by step, retain original tasks and mark unexecuted later steps skipped", () => {
-  const history = collectSubagentHistory([
+  const history = readHistory([
     callEntry("chain", [task(), task("worker", "use {previous}"), task("worker", "never")], "chain"),
     resultEntry("chain", [
       singleResult({ step: 2, task: "use actual output", exitCode: 1 }),
@@ -52,16 +59,16 @@ test("result statuses distinguish failures, abortion, unfinished history and mis
     [{ exitCode: undefined }, "Unknown / interrupted"],
   ];
   for (const [overrides, expected] of cases) {
-    const [item] = collectSubagentHistory([callEntry("c"), resultEntry("c", [singleResult(overrides)])]);
+    const [item] = readHistory([callEntry("c"), resultEntry("c", [singleResult(overrides)])]);
     assert.equal(item.status, expected);
   }
-  assert.equal(collectSubagentHistory([callEntry("unfinished")])[0].status, "Unknown / interrupted");
-  const [missing] = collectSubagentHistory([
+  assert.equal(readHistory([callEntry("unfinished")])[0].status, "Unknown / interrupted");
+  const [missing] = readHistory([
     callEntry("missing"), resultEntry("missing", [], { details: undefined, text: "tool failed", isError: true }),
   ]);
   assert.equal(missing.status, "Result details unavailable", "a generic tool error does not prove no work ran");
   assert.equal(missing.callOutput, "tool failed");
-  const [mismatchedMode] = collectSubagentHistory([
+  const [mismatchedMode] = readHistory([
     callEntry("wrong-mode"), resultEntry("wrong-mode", [], { mode: "chain", isError: true }),
   ]);
   assert.equal(mismatchedMode.status, "Result details unavailable");
@@ -71,7 +78,7 @@ test("malformed entries and result holes cannot shift another task's result into
   const malformed = callEntry("bad", [null, task()]);
   const output = singleResult({ messages: [null, { role: "assistant", content: [null, { type: "text", text: "valid" }] }],
     usage: { input: "bad", output: Infinity, cost: -1 } });
-  const history = collectSubagentHistory([
+  const history = readHistory([
     null, 7, {}, { type: "message", message: null }, malformed,
     resultEntry("bad", [null, output]),
     { type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read", id: "other" }] } },
@@ -84,14 +91,14 @@ test("malformed entries and result holes cannot shift another task's result into
   assert.equal(history[0].result?.usage.input, 0);
   assert.equal(history[0].result?.usage.output, 0);
   assert.equal(history[0].result?.usage.cost, 0);
-  const mismatch = collectSubagentHistory([
+  const mismatch = readHistory([
     callEntry("x"), resultEntry("x", [singleResult({ agent: "another-agent" })]),
   ]);
   assert.equal(mismatch[0].result, undefined);
   const invalidArgs = { type: "message", message: { role: "assistant", content: [
     { type: "toolCall", name: "subagent", id: "invalid", arguments: null },
   ] } };
-  assert.equal(collectSubagentHistory([invalidArgs])[0].task, "(invalid task)");
+  assert.equal(readHistory([invalidArgs])[0].task, "(invalid task)");
 });
 
 test("live history uses only getBranch and ignores nested, unrelated and off-branch events", async () => {

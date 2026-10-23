@@ -175,12 +175,6 @@ function buildTasks(calls: HistoryCall[], results: ReadonlyMap<string, CallSnaps
   });
 }
 
-/** Raw branch input is accepted deliberately so malformed historical entries cannot crash the browser. */
-export function collectSubagentHistory(branch: readonly unknown[]): HistoryTask[] {
-  const { calls, results } = readBranch(branch);
-  return buildTasks(calls, results, new Map());
-}
-
 export interface SubagentHistory {
   read(ctx: ExtensionContext): HistoryTask[];
   subscribe(listener: () => void): () => void;
