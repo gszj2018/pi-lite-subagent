@@ -59,7 +59,8 @@ test("result statuses distinguish failures, abortion, unfinished history and mis
     [{ exitCode: undefined }, "Unknown / interrupted"],
   ];
   for (const [overrides, expected] of cases) {
-    const [item] = readHistory([callEntry("c"), resultEntry("c", [singleResult(overrides)])]);
+    const persisted: unknown = JSON.parse(JSON.stringify(resultEntry("c", [singleResult(overrides)])));
+    const [item] = readHistory([callEntry("c"), persisted]);
     assert.equal(item.status, expected);
   }
   assert.equal(readHistory([callEntry("unfinished")])[0].status, "Unknown / interrupted");
@@ -74,23 +75,20 @@ test("result statuses distinguish failures, abortion, unfinished history and mis
   assert.equal(mismatchedMode.status, "Result details unavailable");
 });
 
-test("malformed entries and result holes cannot shift another task's result into the wrong slot", () => {
+test("malformed branch entries and arguments retain task slots without interfering with valid calls", () => {
   const malformed = callEntry("bad", [null, task()]);
-  const output = singleResult({ messages: [null, { role: "assistant", content: [null, { type: "text", text: "valid" }] }],
-    usage: { input: "bad", output: Infinity, cost: -1 } });
+  const output = singleResult({ messages: [null, { role: "assistant", content: [null, { type: "text", text: "valid" }] }] });
   const history = readHistory([
-    null, 7, {}, { type: "message", message: null }, malformed,
-    resultEntry("bad", [null, output]),
+    null, 7, {}, { type: "message", message: null }, malformed, callEntry("valid"),
+    resultEntry("valid", [output]),
     { type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read", id: "other" }] } },
   ]);
-  assert.equal(history.length, 2);
-  assert.equal(history[1].agent, "unknown");
-  assert.equal(history[1].status, "Result details unavailable");
+  assert.deepEqual(history.map((item) => item.id), ["valid:0", "bad:1", "bad:0"]);
+  assert.equal(history[2].agent, "unknown");
+  assert.equal(history[2].task, "(invalid task)");
+  assert.equal(history[2].status, "Unknown / interrupted");
   assert.equal(history[0].status, "Completed");
   assert.deepEqual(history[0].result?.items, [{ type: "text", text: "valid" }]);
-  assert.equal(history[0].result?.usage.input, 0);
-  assert.equal(history[0].result?.usage.output, 0);
-  assert.equal(history[0].result?.usage.cost, 0);
   const mismatch = readHistory([
     callEntry("x"), resultEntry("x", [singleResult({ agent: "another-agent" })]),
   ]);
@@ -99,6 +97,24 @@ test("malformed entries and result holes cannot shift another task's result into
     { type: "toolCall", name: "subagent", id: "invalid", arguments: null },
   ] } };
   assert.equal(readHistory([invalidArgs])[0].task, "(invalid task)");
+});
+
+test("invalid details make every task's result unavailable while preserving call-level output", () => {
+  for (const results of [
+    [null, singleResult()],
+    [singleResult(), singleResult({ usage: { input: "bad", output: Infinity, cost: -1 } })],
+  ]) {
+    const history = readHistory([
+      callEntry("c", [task(), task("worker", "later")]),
+      resultEntry("c", results, { isError: true, text: "fallback output" }),
+    ]);
+    assert.deepEqual(history.map((item) => item.id), ["c:1", "c:0"]);
+    for (const item of history) {
+      assert.equal(item.status, "Result details unavailable");
+      assert.equal(item.result, undefined);
+      assert.equal(item.callOutput, "fallback output");
+    }
+  }
 });
 
 test("live history uses only getBranch and ignores nested, unrelated and off-branch events", async () => {
@@ -132,7 +148,7 @@ test("concurrent top-level calls retain independent states even when they use th
   ]);
 });
 
-test("live partials are copied into display data and final persisted data replaces and releases the cache", async () => {
+test("live partials are copied and invalid persisted details replace and release the cache", async () => {
   const pi = new MockPi();
   const history = registerSubagentHistory(pi.api);
   const branch: unknown[] = [callEntry("c")];
@@ -141,17 +157,25 @@ test("live partials are copied into display data and final persisted data replac
   const unsubscribe = history.subscribe(() => { changes++; });
   const event = { toolName: "subagent", toolCallId: "c" };
   await pi.emitLifecycle("tool_execution_start", ctx, event);
-  const partial = singleResult({ exitCode: undefined });
+  const text = { type: "text", text: "original" };
+  const args = { path: "original.ts" };
+  const partial = singleResult({ exitCode: undefined, messages: [{ role: "assistant", content: [
+    text, { type: "toolCall", name: "read", arguments: args },
+  ] }] });
   await pi.emitLifecycle("tool_execution_update", ctx, { ...event, partialResult: resultEntry("c", [partial]).message });
   partial.usage.input = 999;
+  text.text = "changed";
+  args.path = "changed.ts";
   partial.messages.push({ role: "assistant", content: [{ type: "text", text: "unannounced mutation" }] });
   const running = history.read(ctx)[0];
   assert.equal(running.status, "Pending / running");
   assert.equal(running.result?.usage.input, 1);
-  assert.equal(running.result?.items.length, 1);
+  assert.deepEqual(running.result?.items, [
+    { type: "text", text: "original" }, { type: "toolCall", name: "read", args: { path: "original.ts" } },
+  ]);
   await pi.emitLifecycle("tool_execution_end", ctx, { ...event, result: resultEntry("c").message, isError: false });
   assert.equal(history.read(ctx)[0].status, "Completed");
-  branch.push(resultEntry("c", [], { details: undefined, text: "redacted persisted output" }));
+  branch.push(resultEntry("c", [singleResult({ usage: {} })], { text: "redacted persisted output" }));
   const final = history.read(ctx)[0];
   assert.equal(final.status, "Result details unavailable");
   assert.equal(final.callOutput, "redacted persisted output");

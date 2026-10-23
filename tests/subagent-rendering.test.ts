@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Container, Markdown, stripTerminalSequences } from "@earendil-works/pi-tui";
+import { getDisplayItems } from "../extension/result-parsing.ts";
 import {
-  appendDisplayItems, formatReadLineRange, formatToolCall, formatUsageStats, getDisplayItems,
+  appendDisplayItems, formatReadLineRange, formatToolCall, formatUsageStats,
 } from "../extension/subagent-rendering.ts";
 import { registerSubagentTool } from "../extension/subagent-tool.ts";
 import { withTempUserAgents } from "./helpers/agents-fixture.ts";
@@ -25,12 +26,8 @@ function messages() {
   ];
 }
 
-test("display items preserve assistant text/tool-call order and repeated text, excluding thinking/tool results", () => {
-  const source = messages();
-  const before = JSON.stringify(source);
-  const items = getDisplayItems(source);
-  assert.deepEqual(items.map((item) => item.type === "text" ? item.text : item.name), ["repeat", "read", "repeat", "final-once"]);
-  assert.equal(JSON.stringify(source), before);
+test("display rendering preserves Markdown/tool-call order and repeated text", () => {
+  const items = getDisplayItems(messages());
   const container = new Container();
   appendDisplayItems(container, items, new BrowserUI().theme);
   assert.equal(container.children.filter((child) => child instanceof Markdown).length, 3);
@@ -41,11 +38,7 @@ test("display items preserve assistant text/tool-call order and repeated text, e
   assert.doesNotMatch(rendered, /hidden reasoning|hidden tool output/);
 });
 
-test("display helpers tolerate partial messages, malformed arguments and unserializable tool summaries", () => {
-  const items = getDisplayItems([null, 42, {}, { role: "assistant", content: "invalid" }, {
-    role: "assistant", content: [null, { type: "text", text: 7 }, { type: "toolCall", name: "read", arguments: null }],
-  }]);
-  assert.deepEqual(items, [{ type: "toolCall", name: "read", args: {} }]);
+test("tool summaries tolerate malformed arguments and unserializable values", () => {
   assert.equal(formatToolCall("read", { path: 7, offset: "bad" }, fg), "read ...");
   assert.equal(formatToolCall("write", { path: "file", content: 42 }, fg), "write file");
   assert.equal(formatToolCall("grep", { path: [], pattern: {} }, fg), "grep // in .");
@@ -86,6 +79,30 @@ test("tool expanded results still render all ordered items exactly once using th
   assert.equal(spawnMock.calls.length, 0);
 });
 
+test("tool results with missing, invalid or empty details fall back to call-level text", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
+  const pi = new MockPi();
+  const spawnMock = new MockSpawn();
+  registerSubagentTool(pi.api, {
+    agentDir, spawn: spawnMock.spawn, env: {}, piLaunch: { execPath: "/fake/pi" },
+    extensionArgs: { extensions: [], noExtensions: false },
+  });
+  const tool = pi.tools.get("subagent");
+  const theme = new BrowserUI().theme;
+  const invalid = resultEntry("c", [singleResult(), null]).message;
+  for (const result of [
+    resultEntry("c", [], { details: undefined }).message, invalid, resultEntry("c", []).message,
+  ]) {
+    for (const expanded of [false, true]) {
+      const component = tool.renderResult(result, { expanded }, theme, {});
+      assert.equal(component.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "call output");
+    }
+  }
+  const empty = tool.renderResult({ ...invalid, content: [] }, { expanded: true }, theme, {});
+  assert.equal(empty.render(100).map(stripTerminalSequences).join("\n").trimEnd(), "(no output)");
+  assert.equal(spawnMock.calls.length, 0);
+});
+
 test("compact and running tool results retain their capped previews rather than the full expanded body", async (t) => {
   const { agentDir } = await withTempUserAgents(t);
   const pi = new MockPi();
@@ -103,7 +120,9 @@ test("compact and running tool results retain their capped previews rather than 
   assert.match(compact, /3 earlier items/);
   assert.doesNotMatch(compact, /item-0|fourth-/);
   assert.match(compact, /Ctrl\+O to expand/);
-  const running = resultEntry("c", [singleResult({ exitCode: undefined, messages: longMessages })]).message;
+  const running = JSON.parse(JSON.stringify(resultEntry("c", [
+    singleResult({ exitCode: undefined, messages: longMessages }),
+  ]).message));
   const expandedRunning = tool.renderResult(running, { expanded: true }, ui.theme, {}).render(100).map(stripTerminalSequences).join("\n");
   assert.match(expandedRunning, /3 earlier items/);
   assert.match(expandedRunning, /fourth-7/);

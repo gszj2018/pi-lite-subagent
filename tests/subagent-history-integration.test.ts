@@ -239,16 +239,19 @@ test("integration: failed chain steps expose stderr and all later task slots rem
   await opening;
 });
 
-test("integration: missing result details retain the call's error text without pretending it is running", async (t) => {
-  const f = await setup(t, [callEntry("c"), resultEntry("c", [], { details: undefined, isError: true, text: "tool unavailable" })]);
-  const opening = f.invoke();
-  await flushPromises();
-  f.press("\r");
-  assert.match(f.render(), /Result details unavailable/);
-  assert.match(f.render(), /tool unavailable/);
-  assert.doesNotMatch(f.render(), /Status: Pending/);
-  f.press("\x03");
-  await opening;
+test("integration: missing or invalid details retain call-level errors instead of partial result contents", async (t) => {
+  const invalid = resultEntry("c", [singleResult(), null]).message.details;
+  for (const details of [undefined, invalid]) {
+    const f = await setup(t, [callEntry("c"), resultEntry("c", [], { details, isError: true, text: "tool unavailable" })]);
+    const opening = f.invoke();
+    await flushPromises();
+    f.press("\r");
+    assert.match(f.render(), /Result details unavailable/);
+    assert.match(f.render(), /tool unavailable/);
+    assert.doesNotMatch(f.render(), /Status: Pending|Status: Completed|answer/);
+    f.press("\x03");
+    await opening;
+  }
 });
 
 test("integration: browsers share mutual exclusion and permission preemption prevents late live refresh", async (t) => {

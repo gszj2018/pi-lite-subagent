@@ -1,11 +1,9 @@
-/** Shared display items, compact tool summaries and expanded assistant/tool-call rendering. */
+/** Compact tool summaries and expanded assistant/tool-call rendering. */
 
 import * as os from "node:os";
 import { getMarkdownTheme, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-
-export type DisplayItem = { type: "text"; text: string } |
-  { type: "toolCall"; name: string; args: Record<string, unknown> };
+import type { DisplayItem } from "./result-parsing.ts";
 
 export function formatTokens(count: number): string {
   if (count < 1000) return count.toString();
@@ -103,27 +101,6 @@ export function formatToolCall(
       return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
     }
   }
-}
-
-/** Old/partial session data is untrusted; preserve valid items without requiring provider metadata. */
-export function getDisplayItems(messages: readonly unknown[]): DisplayItem[] {
-  const items: DisplayItem[] = [];
-  for (const value of messages) {
-    if (!value || typeof value !== "object") continue;
-    const msg = value as Record<string, unknown>;
-    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
-    for (const value of msg.content) {
-      if (!value || typeof value !== "object") continue;
-      const part = value as Record<string, unknown>;
-      if (part.type === "text" && typeof part.text === "string") items.push({ type: "text", text: part.text });
-      else if (part.type === "toolCall" && typeof part.name === "string") {
-        const args = part.arguments && typeof part.arguments === "object" && !Array.isArray(part.arguments)
-          ? { ...part.arguments } : {};
-        items.push({ type: "toolCall", name: part.name, args });
-      }
-    }
-  }
-  return items;
 }
 
 /** No final-output append or text deduplication: each assistant content item appears once, in order. */

@@ -20,8 +20,9 @@ import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-ag
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverAgents } from "./agents.ts";
+import { type DisplayItem, getDisplayItems, parseSubagentDetails } from "./result-parsing.ts";
 import { emptyUsageStats, isFailedResult, runSingleAgent } from "./run-agent.ts";
-import { appendDisplayItems, type DisplayItem, formatToolCall, formatUsageStats, getDisplayItems } from "./subagent-rendering.ts";
+import { appendDisplayItems, formatToolCall, formatUsageStats } from "./subagent-rendering.ts";
 import { truncateSubagentOutput } from "./truncation.ts";
 import type {
   DispatchDefaults,
@@ -279,7 +280,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
     },
 
     renderResult(result, { expanded }, theme, _context) {
-      const details = result.details as SubagentDetails | undefined;
+      const details = parseSubagentDetails(result.details);
       if (!details || details.results.length === 0) {
         const text = result.content[0];
         return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);

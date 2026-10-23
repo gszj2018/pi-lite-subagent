@@ -1,24 +1,13 @@
 /** Branch-authoritative subagent history plus a transient, session-local execution observation cache. */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type DisplayItem, getDisplayItems } from "./subagent-rendering.ts";
-import type { UsageStats } from "./types.ts";
+import { type DisplayItem, getDisplayItems, getTextContent, parseSubagentDetails } from "./result-parsing.ts";
+import type { SingleResult } from "./types.ts";
 
 export type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
   "Skipped" | "Not executed" | "Unknown / interrupted" | "Result details unavailable";
 
-export interface HistoryResult {
-  agent: string;
-  task: string;
-  exitCode?: number;
-  step?: number;
-  items: DisplayItem[];
-  usage: UsageStats;
-  stderr: string;
-  model?: string;
-  stopReason?: string;
-  errorMessage?: string;
-}
+export type HistoryResult = Omit<SingleResult, "messages" | "agentSource"> & { items: DisplayItem[] };
 
 export interface HistoryTask {
   id: string;
@@ -38,7 +27,7 @@ interface CallSnapshot {
   fromMessage?: boolean;
   isError: boolean;
   output: string;
-  details?: { mode: "parallel" | "chain"; results: (HistoryResult | undefined)[] };
+  details?: { mode: "parallel" | "chain"; results: HistoryResult[] };
 }
 
 interface HistoryCall {
@@ -56,46 +45,21 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function decodeResult(value: unknown): HistoryResult | undefined {
-  const r = record(value);
-  if (!r || typeof r.agent !== "string" || typeof r.task !== "string" || !Array.isArray(r.messages)) return;
-  if (r.exitCode !== undefined && (typeof r.exitCode !== "number" || !Number.isInteger(r.exitCode))) return;
-  if (r.step !== undefined && (typeof r.step !== "number" || !Number.isInteger(r.step) || r.step < 1)) return;
-  const rawUsage = record(r.usage);
-  const count = (key: string) => {
-    const value = rawUsage?.[key];
-    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-  };
+function toHistoryResult(result: SingleResult): HistoryResult {
+  const { agent, task, exitCode, step, stderr, model, stopReason, errorMessage } = result;
   return {
-    agent: r.agent,
-    task: r.task,
-    exitCode: r.exitCode as number | undefined,
-    step: typeof r.step === "number" && Number.isInteger(r.step) && r.step >= 1 ? r.step : undefined,
-    items: getDisplayItems(r.messages),
-    usage: {
-      input: count("input"), output: count("output"), cacheRead: count("cacheRead"), cacheWrite: count("cacheWrite"),
-      cost: count("cost"), contextTokens: count("contextTokens"), turns: count("turns"),
-    },
-    stderr: optionalString(r.stderr) ?? "",
-    model: optionalString(r.model),
-    stopReason: optionalString(r.stopReason),
-    errorMessage: optionalString(r.errorMessage),
+    agent, task, exitCode, step, stderr, model, stopReason, errorMessage,
+    items: getDisplayItems(result.messages),
+    usage: { ...result.usage },
   };
 }
 
 function decodeSnapshot(value: unknown, active: boolean, finished: boolean): CallSnapshot {
   const payload = record(value);
-  const details = record(payload?.details);
-  const content = payload?.content;
-  const output = typeof content === "string" ? content : Array.isArray(content)
-    ? content.flatMap((part) => {
-      const p = record(part);
-      return p?.type === "text" && typeof p.text === "string" ? [p.text] : [];
-    }).join("\n") : "";
+  const details = parseSubagentDetails(payload?.details);
   return {
-    active, finished, output, isError: payload?.isError === true,
-    details: details && (details.mode === "parallel" || details.mode === "chain") && Array.isArray(details.results)
-      ? { mode: details.mode, results: details.results.map(decodeResult) } : undefined,
+    active, finished, output: getTextContent(payload?.content), isError: payload?.isError === true,
+    details: details ? { mode: details.mode, results: details.results.map(toHistoryResult) } : undefined,
   };
 }
 
@@ -158,7 +122,7 @@ function buildTasks(calls: HistoryCall[], results: ReadonlyMap<string, CallSnaps
     const decoded = snapshot?.details?.results ?? [];
     const aligned = call.tasks.map((task, index) => {
       const result = call.mode === "chain"
-        ? decoded.find((result) => result?.step === index + 1) ?? (decoded[index]?.step === undefined ? decoded[index] : undefined)
+        ? decoded.find((result) => result.step === index + 1) ?? (decoded[index]?.step === undefined ? decoded[index] : undefined)
         : decoded[index];
       return result?.agent === task.agent ? result : undefined;
     });
