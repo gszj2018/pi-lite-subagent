@@ -1,4 +1,14 @@
-/** Shared asynchronous utilities. */
+/** Shared type guards and asynchronous utilities. */
+
+/** Check for a non-null, non-array object without validating its fields. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Return the original object when it is a record, or undefined otherwise. */
+export function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
 
 /**
  * Map with bounded concurrency, preserving input order.

@@ -10,6 +10,7 @@ import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-a
 import { Box, Text } from "@earendil-works/pi-tui";
 import { getSubagentName, isSubagentSession } from "./env-vars.ts";
 import type { NavigationState, ProcessEnvLike } from "./types.ts";
+import { asRecord } from "./utils.ts";
 
 /** Custom entry type marking a session as a subagent session. */
 export const ACTIVE_AGENT_ENTRY_TYPE = "active_agent";
@@ -25,7 +26,7 @@ export function registerActiveAgentMarker(pi: ExtensionAPI, env: ProcessEnvLike,
   // session must render the marker too; headless modes never call the renderer.
   pi.registerEntryRenderer(ACTIVE_AGENT_ENTRY_TYPE, (entry, _options, theme) => {
     const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-    const data = entry.data !== null && typeof entry.data === "object" && !Array.isArray(entry.data) ? entry.data as Record<string, unknown> : undefined;
+    const data = asRecord(entry.data);
     const name = data && typeof data.name === "string" ? data.name : "unknown";
     box.addChild(new Text(`${theme.fg("accent", `${theme.bold("Subagent session")} (inspection only) ·`)} ${name}`, 0, 0));
     return box;

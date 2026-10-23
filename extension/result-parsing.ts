@@ -3,11 +3,7 @@
 import { Value } from "typebox/value";
 import { SubagentDetailsSchema } from "./result-details.ts";
 import type { DisplayItem, SubagentDetails } from "./types.ts";
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
-}
+import { asRecord } from "./utils.ts";
 
 /** Validate all details at once; invalid data is unavailable rather than partially repaired. */
 export function parseSubagentDetails(value: unknown): SubagentDetails | undefined {
@@ -19,7 +15,7 @@ export function getTextContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.flatMap((value) => {
-    const part = record(value);
+    const part = asRecord(value);
     return part?.type === "text" && typeof part.text === "string" ? [part.text] : [];
   }).join("\n");
 }
@@ -28,13 +24,13 @@ export function getTextContent(content: unknown): string {
 export function getDisplayItems(messages: readonly unknown[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   for (const value of messages) {
-    const msg = record(value);
+    const msg = asRecord(value);
     if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
     for (const value of msg.content) {
-      const part = record(value);
+      const part = asRecord(value);
       if (part?.type === "text" && typeof part.text === "string") items.push({ type: "text", text: part.text });
       else if (part?.type === "toolCall" && typeof part.name === "string") {
-        items.push({ type: "toolCall", name: part.name, args: { ...record(part.arguments) } });
+        items.push({ type: "toolCall", name: part.name, args: { ...asRecord(part.arguments) } });
       }
     }
   }

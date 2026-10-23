@@ -6,6 +6,7 @@ import { getDisplayItems, getTextContent, parseSubagentDetails } from "./result-
 import type { BrowserContent, BrowserController } from "./subagent-browser.ts";
 import { appendDisplayItems, formatUsageStats } from "./subagent-rendering.ts";
 import type { DisplayItem, SingleResult } from "./types.ts";
+import { asRecord } from "./utils.ts";
 
 type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
   "Skipped" | "Not executed" | "Unknown / interrupted" | "Result details unavailable";
@@ -39,11 +40,6 @@ interface HistoryCall {
   tasks: { agent: string; task: string }[];
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
-}
-
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -58,7 +54,7 @@ function toHistoryResult(result: SingleResult): HistoryResult {
 }
 
 function decodeSnapshot(value: unknown, active: boolean, finished: boolean): CallSnapshot {
-  const payload = record(value);
+  const payload = asRecord(value);
   const details = parseSubagentDetails(payload?.details);
   return {
     active, finished, output: getTextContent(payload?.content), isError: payload?.isError === true,
@@ -70,23 +66,23 @@ function readBranch(branch: readonly unknown[], withResults = true): { calls: Hi
   const calls: HistoryCall[] = [];
   const results = new Map<string, CallSnapshot>();
   for (const entry of branch) {
-    const e = record(entry);
-    const msg = e?.type === "message" ? record(e.message) : undefined;
+    const e = asRecord(entry);
+    const msg = e?.type === "message" ? asRecord(e.message) : undefined;
     if (!msg) continue;
     if (withResults && msg.role === "toolResult" && msg.toolName === "subagent" && typeof msg.toolCallId === "string") {
       results.set(msg.toolCallId, decodeSnapshot(msg, false, true));
     } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
       for (const part of msg.content) {
-        const call = record(part);
+        const call = asRecord(part);
         if (call?.type !== "toolCall" || call.name !== "subagent" || typeof call.id !== "string" || !call.id) continue;
-        const args = record(call.arguments);
+        const args = asRecord(call.arguments);
         const rawTasks = args?.tasks;
         const tasks = Array.isArray(rawTasks) && rawTasks.length ? rawTasks : [undefined];
         calls.push({
           id: call.id,
           mode: args?.mode === "chain" ? "chain" : "parallel",
           tasks: tasks.map((value) => {
-            const task = record(value);
+            const task = asRecord(value);
             return {
               agent: optionalString(task?.agent) ?? "unknown",
               task: optionalString(task?.task) ?? "(invalid task)",
@@ -240,7 +236,7 @@ export function registerSubagentHistory(pi: ExtensionAPI, browserController: Bro
     observe(event.toolCallId, ctx, snapshot);
   });
   pi.on("message_end", (event, ctx) => {
-    const msg = record(event.message);
+    const msg = asRecord(event.message);
     if (msg?.role !== "toolResult" || msg.toolName !== "subagent" || typeof msg.toolCallId !== "string") return;
     // This hook runs before persistence. Keep the final message until a later read sees it in getBranch().
     observe(msg.toolCallId, ctx, { ...decodeSnapshot(msg, false, true), fromMessage: true });

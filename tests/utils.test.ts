@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mapWithConcurrencyLimit } from "../extension/utils.ts";
+import { asRecord, isRecord, mapWithConcurrencyLimit } from "../extension/utils.ts";
 import { flushPromises } from "./helpers/mocks.ts";
+
+test("record helpers accept non-null non-array objects without cloning or validating fields", () => {
+  const values: unknown[] = [{}, { name: 42, nested: { value: "kept" } }, Object.create(null), new Date(0)];
+  for (const value of values) {
+    assert.ok(isRecord(value));
+    assert.equal(asRecord(value), value);
+  }
+});
+
+test("record helpers reject null, arrays and non-object values", () => {
+  const values: unknown[] = [undefined, null, false, true, 0, 42, "", "text", 1n, Symbol("value"), () => {}, [], [{}]];
+  for (const value of values) {
+    assert.equal(isRecord(value), false);
+    assert.equal(asRecord(value), undefined);
+  }
+});
 
 test("concurrent mapping returns an empty result without calling the mapper for empty input", async () => {
   const results = await mapWithConcurrencyLimit([], 4, async () => {
