@@ -133,6 +133,7 @@ function buildTasks(calls: HistoryCall[], results: ReadonlyMap<string, CallSnaps
       const result = aligned[index];
       const skipped = call.mode === "chain" && !!snapshot?.finished && aligned.some((r, i) => i < index && r && failed(r));
       let status = taskStatus(result, snapshot, skipped);
+      // Missing parallel results do not prove a task is unstarted; it may be running before its first update.
       if (!result && snapshot?.active && call.mode === "parallel") status = "Pending / running";
       return {
         id: `${call.id}:${index}`, toolCallId: call.id, index, mode: call.mode, ...task,
