@@ -1,6 +1,6 @@
 /** Read-only, bounded metadata discovery for directly related persisted child sessions. */
 
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
@@ -53,20 +53,23 @@ function validEntry(value: unknown): value is Record<string, unknown> {
     (value.parentId === null || typeof value.parentId === "string") && validTime(value.timestamp);
 }
 
+function validateOpenedSessionFile(before: Stats, stat: Stats): void {
+  if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino) {
+    throw new Error("Session file changed while opening it.");
+  }
+}
+
 async function openSessionFile(file: string) {
   if (!path.isAbsolute(file)) {
     throw new Error("Invalid session file path.");
   }
   const before = await fs.lstat(file);
   if (!before.isFile() || before.isSymbolicLink()) throw new Error("Session path is not an ordinary file.");
-  const canonical = await fs.realpath(file);
-  const handle = await fs.open(canonical, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const stat = await handle.stat();
-    if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino) {
-      throw new Error("Session file changed while opening it.");
-    }
-    return { handle, stat, canonical };
+    validateOpenedSessionFile(before, stat);
+    return { handle, stat };
   } catch (error) {
     await handle.close();
     throw error;
@@ -82,15 +85,14 @@ async function readHeader(handle: fs.FileHandle): Promise<SessionHeader | undefi
 }
 
 /** Validate a bounded header before navigation, optionally matching a previously read session ID. */
-export async function validateSessionFile(file: string, expectedHeader?: SessionHeader): Promise<string> {
-  const { handle, canonical } = await openSessionFile(file);
+export async function validateSessionFile(file: string, expectedHeader?: SessionHeader): Promise<void> {
+  const { handle } = await openSessionFile(file);
   try {
     const header = await readHeader(handle);
     if (!header) throw new Error("Session file has no valid session header.");
     if (expectedHeader && header.id !== expectedHeader.id) {
       throw new Error("Session file no longer has the expected session id.");
     }
-    return canonical;
   } finally {
     await handle.close();
   }
@@ -104,7 +106,7 @@ function fileTime(fileName: string): number | undefined {
 }
 
 async function inspectFile(file: string): Promise<SubagentSession> {
-  const { handle, stat, canonical } = await openSessionFile(file);
+  const { handle, stat } = await openSessionFile(file);
   try {
     const header = await readHeader(handle);
     let agent = "unknown";
@@ -134,7 +136,7 @@ async function inspectFile(file: string): Promise<SubagentSession> {
     const fileName = path.basename(file);
     const created = header ? Date.parse(header.timestamp) :
       fileTime(fileName) ?? (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs);
-    return { file: canonical, fileName, agent, created, header };
+    return { file, fileName, agent, created, header };
   } finally {
     await handle.close();
   }
@@ -148,10 +150,9 @@ export interface SessionScan {
 export async function scanSubagentSessions(
   sessionDir: string, sessionId: string, parentFile: string,
 ): Promise<SessionScan> {
-  const candidate = subagentSessionDir(sessionDir, sessionId);
-  if (!candidate || !path.isAbsolute(sessionDir)) throw new Error("This session has no persistent session directory.");
+  const directory = subagentSessionDir(sessionDir, sessionId);
+  if (!directory || !path.isAbsolute(sessionDir)) throw new Error("This session has no persistent session directory.");
   await validateSessionFile(parentFile);
-  const directory = await fs.realpath(candidate);
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile() && path.extname(entry.name) === ".jsonl");
   const inspected = await mapWithConcurrencyLimit(files, SESSION_METADATA_CONCURRENCY, async (entry) => {

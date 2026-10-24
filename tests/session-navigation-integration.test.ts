@@ -69,7 +69,7 @@ async function fixture(t: TestContext) {
         return { cancelled: true };
       }
       if (switchMode === "throw") throw new Error("mock switch failed before teardown");
-      const target = await validateSessionFile(file);
+      await validateSessionFile(file);
       await pi.emitLifecycle("session_shutdown", ctx, { reason: "resume", targetSessionFile: file });
       runtime.alive = false;
       const stale = () => { staleAccesses.push("stale context access"); throw new Error("stale context access"); };
@@ -79,7 +79,7 @@ async function fixture(t: TestContext) {
       ctx.ui.notify = stale;
       ctx.isIdle = stale;
       ctx.hasPendingMessages = stale;
-      current = await makeRuntime(target);
+      current = await makeRuntime(file);
       return { cancelled: false };
     };
     await pi.emitLifecycle("session_start", ctx, reason);
@@ -109,7 +109,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-test("integration: parent -> external child -> parent uses real paths and protects markerless sessions", async (t) => {
+test("integration: directory-junction selections switch via real paths and protect markerless sessions", async (t) => {
   const f = await fixture(t);
   const child = await f.child();
   const directory = path.dirname(child.file);

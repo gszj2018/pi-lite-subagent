@@ -59,7 +59,7 @@ test("malformed, missing-marker, empty and oversized files retain bounded metada
   assert.equal(scan.sessions.find((session) => session.fileName === fallback)?.created,
     Date.parse("2026-10-21T01:02:03.004Z"));
   assert.equal(scan.sessions.find((session) => session.fileName === "empty.jsonl")?.header, undefined);
-  assert.equal(await validateSessionFile(large.file), large.file, "metadata size is not an open limit");
+  await validateSessionFile(large.file); // The metadata size limit does not prevent navigation.
   await assert.rejects(validateSessionFile(path.join(directory, "empty.jsonl")), /header/);
 });
 
@@ -87,7 +87,7 @@ test("symbolic-link files are excluded and cannot be selected directly", async (
   await assert.rejects(validateSessionFile(link), /ordinary/);
 });
 
-test("scanning resolves directory junctions and returns canonical file paths", async (t) => {
+test("scanning preserves directory junction paths for discovered sessions", async (t) => {
   const f = await withTempSessions(t);
   const outside = path.join(f.projectDir, "external-sessions");
   await fs.mkdir(outside);
@@ -97,9 +97,10 @@ test("scanning resolves directory junctions and returns canonical file paths", a
   const candidate = path.join(f.sessionDir, "lite-subagent", f.parent.id);
   await fs.symlink(outside, candidate, "junction");
   const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
-  assert.equal(scan.directory, await fs.realpath(outside));
-  assert.deepEqual(scan.sessions.map((session) => session.file), [await fs.realpath(file)]);
-  assert.equal(await validateSessionFile(path.join(candidate, "external.jsonl")), await fs.realpath(file));
+  const selected = path.join(candidate, "external.jsonl");
+  assert.equal(scan.directory, candidate);
+  assert.deepEqual(scan.sessions.map((session) => session.file), [selected]);
+  await validateSessionFile(selected, scan.sessions[0].header);
 });
 
 test("session validation compares a supplied header id", async (t) => {
@@ -108,7 +109,7 @@ test("session validation compares a supplied header id", async (t) => {
   const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
   const expected = scan.sessions[0].header;
   assert.ok(expected);
-  assert.equal(await validateSessionFile(child.file, expected), await fs.realpath(child.file));
+  await validateSessionFile(child.file, expected);
   await fs.writeFile(child.file, sessionText("changed-id", f.projectDir));
   await assert.rejects(validateSessionFile(child.file, expected), /expected session id/);
 });

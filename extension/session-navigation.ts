@@ -163,17 +163,17 @@ export function registerSessionNavigation(pi: ExtensionAPI, state: NavigationSta
     ensureCurrent(ctx, source);
     const selected = scan.sessions.find((session) => session.file === file);
     if (!selected?.header) throw new Error("The selected session has no valid session header.");
-    const target = await validateSessionFile(file, selected.header);
+    await validateSessionFile(file, selected.header);
     if (cancelled()) return;
     ensureCurrent(ctx, source);
-    await switchSession(ctx, "push", source, target);
+    await switchSession(ctx, "push", source, file);
   });
   registerCommand("return-to-parent-session", "Return to the parent session used for inspection.", async (ctx, cancelled) => {
     const source = checked(ctx);
     const parent = parentSessionFile(ctx);
-    const target = await validateSessionFile(parent);
+    await validateSessionFile(parent);
     if (cancelled()) return;
     ensureCurrent(ctx, source);
-    await switchSession(ctx, "pop", source, target);
+    await switchSession(ctx, "pop", source, parent);
   });
 }
