@@ -6,7 +6,7 @@ import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { ACTIVE_AGENT_ENTRY_TYPE } from "./active-agent.ts";
 import { getTextContent } from "./result-parsing.ts";
 import { isPathSafeSessionId, subagentSessionDir } from "./session-paths.ts";
-import { isRecord, mapWithConcurrencyLimit } from "./utils.ts";
+import { isRecord, isValidDateString, mapWithConcurrencyLimit } from "./utils.ts";
 
 export const MAX_SESSION_METADATA_BYTES = 8 * 1024 * 1024;
 export const SESSION_METADATA_CONCURRENCY = 4;
@@ -27,13 +27,9 @@ export interface SubagentSession {
   header?: SessionHeader;
 }
 
-function validTime(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(Date.parse(value));
-}
-
 function decodeHeader(value: unknown): SessionHeader | undefined {
   if (!isRecord(value) || value.type !== "session" || typeof value.id !== "string" ||
-    !isPathSafeSessionId(value.id) || !validTime(value.timestamp) || typeof value.cwd !== "string" ||
+    !isPathSafeSessionId(value.id) || !isValidDateString(value.timestamp) || typeof value.cwd !== "string" ||
     !path.isAbsolute(value.cwd) || (value.version !== undefined &&
       !(Number.isInteger(value.version) && Number(value.version) >= 1))) return undefined;
   return { id: value.id, timestamp: value.timestamp, cwd: value.cwd };
@@ -51,7 +47,7 @@ function validEntry(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) return false;
   if (value.type === "session") return decodeHeader(value) !== undefined;
   return typeof value.type === "string" && typeof value.id === "string" && value.id.length > 0 &&
-    (value.parentId === null || typeof value.parentId === "string") && validTime(value.timestamp);
+    (value.parentId === null || typeof value.parentId === "string") && isValidDateString(value.timestamp);
 }
 
 function validateOpenedSessionFile(before: fs.Stats, stat: fs.Stats): void {

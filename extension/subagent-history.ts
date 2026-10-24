@@ -6,7 +6,7 @@ import { getDisplayItems, getTextContent, parseSubagentDetails } from "./result-
 import type { BrowserContent, BrowserController } from "./subagent-browser.ts";
 import { appendDisplayItems, formatUsageStats } from "./subagent-rendering.ts";
 import type { DisplayItem, SingleResult } from "./types.ts";
-import { asRecord } from "./utils.ts";
+import { asRecord, asString } from "./utils.ts";
 
 type HistoryStatus = "Completed" | "Failed" | "Aborted" | "Pending / running" | "Not started" |
   "Skipped" | "Not executed" | "Unknown / interrupted" | "Result details unavailable";
@@ -38,10 +38,6 @@ interface HistoryCall {
   id: string;
   mode: "parallel" | "chain";
   tasks: { agent: string; task: string }[];
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 function toHistoryResult(result: SingleResult): HistoryResult {
@@ -84,8 +80,8 @@ function readBranch(branch: readonly unknown[], withResults = true): { calls: Hi
           tasks: tasks.map((value) => {
             const task = asRecord(value);
             return {
-              agent: optionalString(task?.agent) ?? "unknown",
-              task: optionalString(task?.task) ?? "(invalid task)",
+              agent: asString(task?.agent) ?? "unknown",
+              task: asString(task?.task) ?? "(invalid task)",
             };
           }),
         });
