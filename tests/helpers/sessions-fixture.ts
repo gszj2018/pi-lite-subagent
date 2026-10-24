@@ -9,13 +9,17 @@ import { makeTempDir } from "./agents-fixture.ts";
 export const SESSION_TIME = "2026-10-20T10:00:00.000Z";
 
 export function sessionText(id: string, cwd: string, options: {
-  agent?: string; timestamp?: string; extra?: unknown[];
+  agent?: string; task?: string; timestamp?: string; extra?: unknown[];
 } = {}): string {
   const timestamp = options.timestamp ?? SESSION_TIME;
   const entries: unknown[] = [{ type: "session", version: 3, id, timestamp, cwd }];
   if (options.agent !== undefined) entries.push({
     type: "custom", id: "marker", parentId: null, timestamp,
     customType: "active_agent", data: { name: options.agent },
+  });
+  if (options.task !== undefined) entries.push({
+    type: "message", id: "user", parentId: options.agent !== undefined ? "marker" : null, timestamp,
+    message: { role: "user", content: [{ type: "text", text: `Task: ${options.task}` }], timestamp: Date.parse(timestamp) },
   });
   entries.push(...(options.extra ?? []));
   return entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";

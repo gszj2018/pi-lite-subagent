@@ -47,7 +47,8 @@ export class SubagentSessionSelector implements Component {
     if (available < 1) return compact();
     this.pageSize = Math.max(1, Math.min(10, available, this.sessions.length));
     const list = new SelectList(this.sessions.map((session, index) => {
-      const label = `${singleLineLabel(session.agent)} · ${singleLineLabel(session.fileName)}`;
+      const task = singleLineLabel(session.task ?? "");
+      const label = `${singleLineLabel(session.agent)} · ${task || singleLineLabel(session.fileName)}`;
       return {
         value: session.file,
         label: index === this.selectedIndex ? label : this.theme.fg("text", label),

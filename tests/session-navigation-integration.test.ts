@@ -109,6 +109,19 @@ async function fixture(t: TestContext) {
   };
 }
 
+test("integration: scanned first-user tasks label choices without changing their navigation targets", async (t) => {
+  const f = await fixture(t);
+  const child = await f.child(f.parent, "task-session", { agent: "worker", task: "Inspect the scanner\nCheck navigation" });
+  const { execution } = await f.openPicker();
+  assert.match(f.render(), /worker · Inspect the scanner Check navigation/);
+  f.press("\r");
+  await execution;
+  assert.deepEqual(f.switches, [child.file]);
+  assert.equal(f.current.ctx.sessionManager.getSessionId(), child.id);
+  assert.deepEqual(f.state, { frames: [f.parent.file] });
+  assert.deepEqual(f.staleAccesses, []);
+});
+
 test("integration: directory-junction selections switch via real paths and protect markerless sessions", async (t) => {
   const f = await fixture(t);
   const child = await f.child();

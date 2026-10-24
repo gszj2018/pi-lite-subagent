@@ -41,12 +41,46 @@ test("discovery reads only ordinary direct jsonl files and sorts by creation met
   assert.deepEqual(await fs.readFile(older.file), before, "discovery does not rewrite sessions");
 });
 
+test("discovery extracts only the first user message and removes one task wrapper", async (t) => {
+  const f = await withTempSessions(t);
+  const cases = [
+    { id: "wrapped", content: "Task: Inspect the scanner\nCheck navigation.", expected: "Inspect the scanner\nCheck navigation." },
+    { id: "plain", content: "Inspect the scanner", expected: "Inspect the scanner" },
+    { id: "nested-wrapper", content: "Task: Task: Keep this prefix", expected: "Task: Keep this prefix" },
+    { id: "blocks", content: [null, { type: "image", data: "ignored" },
+      { type: "text", text: "Task: Inspect" }, { type: "text", text: 7 }, { type: "text", text: "the scanner" }],
+      expected: "Inspect\nthe scanner" },
+    { id: "empty", content: "Task: \n ", expected: undefined },
+    { id: "image-only", content: [{ type: "image", data: "ignored" }], expected: undefined },
+    { id: "invalid-content", content: 42, expected: undefined },
+  ];
+  for (const { id, content } of cases) {
+    const extra = [
+      { role: "assistant", content: "Not a user task" },
+      { role: "user", content },
+      { role: "user", content: "Task: A later prompt" },
+    ].map((message, index) => ({
+      type: "message", id: `message-${index}`, parentId: index === 0 ? "marker" : `message-${index - 1}`,
+      timestamp: SESSION_TIME, message,
+    }));
+    await f.child(f.parent, id, { agent: "worker", extra });
+  }
+  const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
+  assert.equal(scan.sessions.length, cases.length);
+  for (const { id, expected } of cases) {
+    const session = scan.sessions.find((session) => session.header?.id === id);
+    assert.ok(session);
+    assert.equal(session.task, expected, id);
+    assert.equal(session.agent, "worker", "unavailable task text does not discard valid agent metadata");
+  }
+});
+
 test("malformed, missing-marker, empty and oversized files retain bounded metadata fallbacks", async (t) => {
   const f = await withTempSessions(t);
-  const missing = await f.child(f.parent, "no-marker");
-  const broken = await f.child(f.parent, "broken", { agent: "must-not-trust" });
+  const missing = await f.child(f.parent, "no-marker", { task: "Inspect without a marker" });
+  const broken = await f.child(f.parent, "broken", { agent: "must-not-trust", task: "Must not be used" });
   await fs.appendFile(broken.file, "not-json\nnull\n");
-  const large = await f.child(f.parent, "large", { agent: "not-scanned" });
+  const large = await f.child(f.parent, "large", { agent: "not-scanned", task: "Must not be scanned" });
   const handle = await fs.open(large.file, "r+");
   try { await handle.truncate(MAX_SESSION_METADATA_BYTES + 1); } finally { await handle.close(); }
   const directory = path.dirname(missing.file);
@@ -56,6 +90,9 @@ test("malformed, missing-marker, empty and oversized files retain bounded metada
   const scan = await scanSubagentSessions(f.sessionDir, f.parent.id, f.parent.file);
   assert.equal(scan.sessions.length, 5);
   assert.ok(scan.sessions.every((session) => session.agent === "unknown"));
+  assert.equal(scan.sessions.find((session) => session.header?.id === "no-marker")?.task, "Inspect without a marker");
+  assert.ok(scan.sessions.filter((session) => session.header?.id !== "no-marker")
+    .every((session) => session.task === undefined));
   assert.equal(scan.sessions.find((session) => session.fileName === fallback)?.created,
     Date.parse("2026-10-21T01:02:03.004Z"));
   assert.equal(scan.sessions.find((session) => session.fileName === "empty.jsonl")?.header, undefined);

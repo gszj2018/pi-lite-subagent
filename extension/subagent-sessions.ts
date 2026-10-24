@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { ACTIVE_AGENT_ENTRY_TYPE } from "./active-agent.ts";
+import { getTextContent } from "./result-parsing.ts";
 import { isPathSafeSessionId, subagentSessionDir } from "./session-paths.ts";
 import { isRecord, mapWithConcurrencyLimit } from "./utils.ts";
 
@@ -21,6 +22,7 @@ export interface SubagentSession {
   file: string;
   fileName: string;
   agent: string;
+  task?: string;
   created: number;
   header?: SessionHeader;
 }
@@ -104,11 +106,24 @@ function fileTime(fileName: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function firstUserTask(entries: readonly unknown[]): string | undefined {
+  for (const entry of entries) {
+    if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message) || entry.message.role !== "user") {
+      continue;
+    }
+    const text = getTextContent(entry.message.content);
+    const task = text.startsWith("Task: ") ? text.slice("Task: ".length) : text;
+    return task.trim() ? task : undefined;
+  }
+  return undefined;
+}
+
 async function inspectFile(file: string): Promise<SubagentSession> {
   const { handle, stat } = await openSessionFile(file);
   try {
     const header = await readHeader(handle);
     let agent = "unknown";
+    let task: string | undefined;
     if (header && stat.size <= MAX_SESSION_METADATA_BYTES) {
       try {
         // The positioned header read does not advance the descriptor's readFile cursor.
@@ -120,6 +135,7 @@ async function inspectFile(file: string): Promise<SubagentSession> {
           const count = text.split("\n").filter((line) => line.trim() !== "").length;
           const complete = count === entries.length && entries.every(validEntry);
           if (complete) {
+            task = firstUserTask(entries);
             const marker = entries.find((entry) => isRecord(entry) && entry.type === "custom" &&
               entry.customType === ACTIVE_AGENT_ENTRY_TYPE && isRecord(entry.data) &&
               typeof entry.data.name === "string" && entry.data.name.trim() !== "");
@@ -135,7 +151,7 @@ async function inspectFile(file: string): Promise<SubagentSession> {
     const fileName = path.basename(file);
     const created = header ? Date.parse(header.timestamp) :
       fileTime(fileName) ?? (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs);
-    return { file, fileName, agent, created, header };
+    return { file, fileName, agent, task, created, header };
   } finally {
     await handle.close();
   }
