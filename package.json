@@ -1,6 +1,6 @@
 {
   "name": "pi-lite-subagent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight subagent delegation extension for the Pi coding agent: parallel and chained task dispatch with isolated subagent contexts.",
   "keywords": [
     "pi-package",
