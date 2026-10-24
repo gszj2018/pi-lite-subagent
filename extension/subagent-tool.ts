@@ -299,7 +299,8 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
             const preview = expanded ? item.text : item.text.split("\n").slice(0, 3).join("\n");
             text += `${theme.fg("toolOutput", preview)}\n`;
           } else {
-            text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
+            const summary = formatToolCall(item.name, item.args, theme.fg.bind(theme), !expanded);
+            text += `${theme.fg("muted", "→ ") + summary}\n`;
           }
         }
         return text.trimEnd();

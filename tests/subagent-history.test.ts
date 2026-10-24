@@ -63,6 +63,20 @@ test("results join by toolCallId rather than completion order or agent name", ()
   assert.match(detail(history[1]), /Stderr: failure/);
 });
 
+test("history details show full commands and serialized arguments beyond compact summary limits", () => {
+  const command = `echo ${"x".repeat(70)} COMMAND_END`;
+  const args = { query: "x".repeat(65), extra: "ARGUMENT_END" };
+  const [item] = readHistory([
+    callEntry("c"), resultEntry("c", [singleResult({ messages: [{ role: "assistant", content: [
+      { type: "toolCall", name: "bash", arguments: { command } },
+      { type: "toolCall", name: "custom", arguments: args },
+    ] }] })]),
+  ]);
+  const rendered = detail(item);
+  assert.ok(rendered.includes(`$ ${command}`));
+  assert.ok(rendered.includes(`custom ${JSON.stringify(args)}`));
+});
+
 test("chain results align by step, retain original tasks and mark unexecuted later steps skipped", () => {
   const history = readHistory([
     callEntry("chain", [task(), task("worker", "use {previous}"), task("worker", "never")], "chain"),

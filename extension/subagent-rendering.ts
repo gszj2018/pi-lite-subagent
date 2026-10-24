@@ -52,10 +52,12 @@ function stringArg(value: unknown, fallback = ""): string {
   return typeof value === "string" && value ? value : fallback;
 }
 
+/** Format a tool summary, optionally preserving full command and serialized argument text. */
 export function formatToolCall(
   toolName: string,
   args: Record<string, unknown>,
   themeFg: (color: ThemeColor, text: string) => string,
+  truncate = true,
 ): string {
   const shortenPath = (p: string) => {
     const home = os.homedir();
@@ -65,7 +67,7 @@ export function formatToolCall(
   switch (toolName) {
     case "bash": {
       const command = stringArg(args.command, "...");
-      const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
+      const preview = truncate && command.length > 60 ? `${command.slice(0, 60)}...` : command;
       return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
     }
     case "read": {
@@ -93,13 +95,13 @@ export function formatToolCall(
     default: {
       let argsStr: string;
       try { argsStr = JSON.stringify(args) ?? "(unavailable arguments)"; } catch { argsStr = "(unavailable arguments)"; }
-      const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
+      const preview = truncate && argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
       return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
     }
   }
 }
 
-/** No final-output append or text deduplication: each assistant content item appears once, in order. */
+/** Render complete tool summaries and ordered assistant items without deduplication or a final-output append. */
 export function appendDisplayItems(container: Container, items: readonly DisplayItem[], theme: Theme): void {
   const mdTheme = getMarkdownTheme();
   for (const item of items) {
@@ -107,7 +109,8 @@ export function appendDisplayItems(container: Container, items: readonly Display
       container.addChild(new Spacer(1));
       container.addChild(new Markdown(item.text, 0, 0, mdTheme));
     } else {
-      container.addChild(new Text(theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme)), 0, 0));
+      const summary = formatToolCall(item.name, item.args, theme.fg.bind(theme), false);
+      container.addChild(new Text(theme.fg("muted", "→ ") + summary, 0, 0));
     }
   }
 }

@@ -44,7 +44,21 @@ test("tool summaries tolerate malformed arguments and unserializable values", ()
   assert.equal(formatToolCall("grep", { path: [], pattern: {} }, fg), "grep // in .");
   const circular: Record<string, unknown> = {};
   circular.self = circular;
-  assert.match(formatToolCall("custom", circular, fg), /unavailable arguments/);
+  for (const truncate of [true, false]) {
+    assert.equal(formatToolCall("custom", circular, fg, truncate), "custom (unavailable arguments)");
+  }
+});
+
+test("tool summaries keep their compact character limits unless truncation is disabled", () => {
+  const command = `echo ${"x".repeat(70)}\nprintf COMMAND_END`;
+  const args = { query: "x".repeat(65), extra: "ARGUMENT_END" };
+  const serialized = JSON.stringify(args);
+  assert.equal(formatToolCall("bash", { command }, fg), `$ ${command.slice(0, 60)}...`);
+  assert.equal(formatToolCall("bash", { command }, fg, true), `$ ${command.slice(0, 60)}...`);
+  assert.equal(formatToolCall("bash", { command }, fg, false), `$ ${command}`);
+  assert.equal(formatToolCall("custom", args, fg), `custom ${serialized.slice(0, 50)}...`);
+  assert.equal(formatToolCall("custom", args, fg, true), `custom ${serialized.slice(0, 50)}...`);
+  assert.equal(formatToolCall("custom", args, fg, false), `custom ${serialized}`);
 });
 
 test("usage, read ranges and normal compact tool summaries keep their existing formats", () => {
@@ -95,6 +109,43 @@ test("tool call rendering validates parameters before rendering either mode", as
       assert.throws(() => tool.renderCall(args, theme, { expanded }), {
         name: "TypeError", message: "Invalid subagent tool parameters.",
       });
+    }
+  }
+  assert.equal(spawnMock.calls.length, 0);
+});
+
+test("expanded tool results show full commands and arguments both while running and after completion", async (t) => {
+  const { agentDir } = await withTempUserAgents(t);
+  const pi = new MockPi();
+  const spawnMock = new MockSpawn();
+  registerSubagentTool(pi.api, {
+    agentDir, spawn: spawnMock.spawn, env: {}, piLaunch: { execPath: "/fake/pi" },
+    extensionArgs: { extensions: [], noExtensions: false },
+  });
+  const tool = pi.tools.get("subagent");
+  const theme = new BrowserUI().theme;
+  const command = `echo ${"x".repeat(70)}\nprintf COMMAND_END`;
+  const args = { query: "x".repeat(65), extra: "ARGUMENT_END" };
+  const serialized = JSON.stringify(args);
+  const toolMessages = [{ role: "assistant", content: [
+    { type: "toolCall", name: "bash", arguments: { command } },
+    { type: "toolCall", name: "custom", arguments: args },
+  ] }];
+  for (const mode of ["parallel", "chain"] as const) {
+    for (const exitCode of [0, undefined]) {
+      const result = resultEntry("c", [singleResult({ exitCode, messages: toolMessages,
+        ...(mode === "chain" ? { step: 1 } : {}) })], { mode }).message;
+      for (const expanded of [false, true]) {
+        // Text pads each visual row; remove layout padding before comparing multiline content.
+        const rendered = tool.renderResult(result, { expanded }, theme, {}).render(4096)
+          .map((line: string) => stripTerminalSequences(line).trimEnd()).join("\n");
+        const shownCommand = expanded ? command : `${command.slice(0, 60)}...`;
+        const shownArgs = expanded ? serialized : `${serialized.slice(0, 50)}...`;
+        assert.ok(rendered.includes(`$ ${shownCommand}`), `${mode}: command, expanded=${expanded}, exitCode=${exitCode}`);
+        assert.ok(rendered.includes(`custom ${shownArgs}`), `${mode}: arguments, expanded=${expanded}, exitCode=${exitCode}`);
+        assert.equal(rendered.includes("COMMAND_END"), expanded);
+        assert.equal(rendered.includes("ARGUMENT_END"), expanded);
+      }
     }
   }
   assert.equal(spawnMock.calls.length, 0);
