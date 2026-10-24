@@ -3,13 +3,14 @@ import { getEventListeners } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import type { AgentConfig } from "../extension/agents.ts";
 import { DEPTH_ENV, NAME_ENV, PARENT_SESSION_ENV } from "../extension/env-vars.ts";
 import { buildPiArgs, getPiInvocation, isPathSafeSessionId, runSingleAgent } from "../extension/run-agent.ts";
 import type { InheritedExtensionArgs, SingleResult, SubagentDetails, SubagentRunnerDeps } from "../extension/types.ts";
 import { makeTempDir, withTempUserAgents } from "./helpers/agents-fixture.ts";
 import { MockSpawn, assistantMessage, basicUsage, messageEndEvent, toolResultEvent } from "./helpers/mock-spawn.ts";
+import type { MockProcScript } from "./helpers/mock-spawn.ts";
 import { createContext, flushPromises } from "./helpers/mocks.ts";
 
 const noExtensionArgs: InheritedExtensionArgs = { extensions: [], noExtensions: false };
@@ -41,6 +42,31 @@ function makeDeps(
     piLaunch: { execPath: "/fake/bin/pi-runtime" },
     extensionArgs,
   };
+}
+
+/**
+ * Shared start-up for the `runSingleAgent` abort-signal tests only (the three tests below).
+ * It enables mock timers, creates a temp agent tree, a held mock process and an
+ * AbortController, then starts the run. Keep it scoped to those tests; other runner tests
+ * have different process scripts and assertions.
+ */
+async function startAbortTestRun(t: TestContext, script: MockProcScript) {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { agentDir, projectDir } = await withTempUserAgents(t);
+  const spawnMock = new MockSpawn([script]);
+  const { ctx } = createContext({ cwd: projectDir });
+  const controller = new AbortController();
+  const promise = runSingleAgent({
+    deps: makeDeps(spawnMock, agentDir),
+    ctx,
+    agents: [makeAgent()],
+    agentName: "worker",
+    task: "t",
+    dispatchDefaults: {},
+    signal: controller.signal,
+    makeDetails,
+  });
+  return { spawnMock, controller, promise };
 }
 
 test("buildPiArgs inherits the dispatch model only when the agent defines no model", () => {
@@ -229,21 +255,7 @@ test("runSingleAgent writes and cleans up the system-prompt temp file", async (t
 });
 
 test("runSingleAgent aborts with SIGTERM and clears the escalation timer on close", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir, projectDir } = await withTempUserAgents(t);
-  const spawnMock = new MockSpawn([{ hold: true }]);
-  const { ctx } = createContext({ cwd: projectDir });
-  const controller = new AbortController();
-  const promise = runSingleAgent({
-    deps: makeDeps(spawnMock, agentDir),
-    ctx,
-    agents: [makeAgent()],
-    agentName: "worker",
-    task: "t",
-    dispatchDefaults: {},
-    signal: controller.signal,
-    makeDetails,
-  });
+  const { spawnMock, controller, promise } = await startAbortTestRun(t, { hold: true });
   await flushPromises();
   controller.abort();
   await assert.rejects(promise, /Subagent was aborted/);
@@ -255,15 +267,7 @@ test("runSingleAgent aborts with SIGTERM and clears the escalation timer on clos
 });
 
 test("runSingleAgent removes its abort listener on close and preserves success after a late abort", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir, projectDir } = await withTempUserAgents(t);
-  const spawnMock = new MockSpawn([{ hold: true }]);
-  const { ctx } = createContext({ cwd: projectDir });
-  const controller = new AbortController();
-  const promise = runSingleAgent({
-    deps: makeDeps(spawnMock, agentDir), ctx, agents: [makeAgent()], agentName: "worker", task: "t",
-    dispatchDefaults: {}, signal: controller.signal, makeDetails,
-  });
+  const { spawnMock, controller, promise } = await startAbortTestRun(t, { hold: true });
   t.after(async () => {
     for (const proc of spawnMock.procs) proc.release();
     await promise.catch(() => {});
@@ -282,21 +286,7 @@ test("runSingleAgent removes its abort listener on close and preserves success a
 });
 
 test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { agentDir, projectDir } = await withTempUserAgents(t);
-  const spawnMock = new MockSpawn([{ hold: true, ignoreTerm: true }]);
-  const { ctx } = createContext({ cwd: projectDir });
-  const controller = new AbortController();
-  const promise = runSingleAgent({
-    deps: makeDeps(spawnMock, agentDir),
-    ctx,
-    agents: [makeAgent()],
-    agentName: "worker",
-    task: "t",
-    dispatchDefaults: {},
-    signal: controller.signal,
-    makeDetails,
-  });
+  const { spawnMock, controller, promise } = await startAbortTestRun(t, { hold: true, ignoreTerm: true });
   await flushPromises();
   controller.abort();
   await flushPromises();
