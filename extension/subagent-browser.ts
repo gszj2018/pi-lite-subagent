@@ -12,7 +12,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { singleLineLabel } from "./utils-pi.ts";
+import { formatKeybindingKeys, renderWindowTooSmall, singleLineLabel } from "./utils-pi.ts";
 
 export interface BrowserItem {
   id: string;
@@ -131,15 +131,8 @@ export class SubagentBrowser implements Component {
   }
 
   private helpText(): string {
-    const key = (action: Parameters<KeybindingsManager["getKeys"]>[0]) => {
-      const names: Record<string, string> = {
-        up: "↑", down: "↓", pageUp: "PgUp", pageDown: "PgDn", enter: "Enter", return: "Enter",
-        escape: "Esc", esc: "Esc", space: "Space",
-      };
-      return this.keybindings.getKeys(action)
-        .filter((name) => action !== "tui.select.cancel" || name !== Key.ctrl("c"))
-        .map((name) => names[name] ?? name).join("/") || "(unbound)";
-    };
+    const key = (action: Parameters<KeybindingsManager["getKeys"]>[0]) =>
+      formatKeybindingKeys(this.keybindings, action, action === "tui.select.cancel");
     return [
       `${key("tui.select.up")}/${key("tui.select.down")}: ${this.showingDetail ? "scroll" : "navigate"}`,
       `${key("tui.select.pageUp")}/${key("tui.select.pageDown")}: page`,
@@ -152,8 +145,7 @@ export class SubagentBrowser implements Component {
   render(width: number): string[] {
     if (this.disposed || width < 1) return [];
     const height = this.height;
-    const compact = () => [truncateToWidth(this.theme.fg("muted", "Window too small · Ctrl+C: close"), width, "")];
-    if (width < 3) return compact();
+    if (width < 3) return renderWindowTooSmall(this.theme, width);
 
     const innerWidth = width - 2;
     const body = this.showingDetail ? this.getDetailLines(innerWidth) : [];
@@ -164,7 +156,7 @@ export class SubagentBrowser implements Component {
     const help = new Text(this.theme.fg("dim", this.helpText()), 0, 0).render(helpWidth);
     // Borders/separators and the fixed title/footer are measured outside the content viewport.
     const available = height - help.length - (this.showingDetail ? 7 : 5);
-    if (available < 1) return compact();
+    if (available < 1) return renderWindowTooSmall(this.theme, width);
 
     const border = (text: string) => this.theme.fg("border", text);
     const row = (text: string) => border("│") + truncateToWidth(text, innerWidth, "", true) + border("│");
@@ -176,7 +168,7 @@ export class SubagentBrowser implements Component {
     ];
     if (!this.showingDetail) {
       const list = this.renderList(innerWidth, available);
-      if (!list) return compact();
+      if (!list) return renderWindowTooSmall(this.theme, width);
       lines.push(...list.map(row));
     } else {
       const selected = this.selected;

@@ -4,7 +4,7 @@ import { DynamicBorder, type ExtensionAPI, type ExtensionContext, type Theme } f
 import { type Component, Key, type KeybindingsManager, matchesKey, SelectList, Text,
   type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { SubagentSession } from "./subagent-sessions.ts";
-import { singleLineLabel } from "./utils-pi.ts";
+import { formatKeybindingKeys, renderWindowTooSmall, singleLineLabel } from "./utils-pi.ts";
 
 export class SubagentSessionSelector implements Component {
   private selectedIndex = 0;
@@ -24,16 +24,10 @@ export class SubagentSessionSelector implements Component {
 
   render(width: number): string[] {
     if (this.disposed || width < 1) return [];
-    const compact = () => [truncateToWidth(this.theme.fg("muted", "Window too small · Ctrl+C: close"), width, "")];
-    if (width < 3) return compact();
+    if (width < 3) return renderWindowTooSmall(this.theme, width);
     const innerWidth = width - 2;
-    const keyLabels: Record<string, string> = {
-      up: "↑", down: "↓", pageUp: "PgUp", pageDown: "PgDn", enter: "Enter", return: "Enter",
-      escape: "Esc", esc: "Esc", space: "Space",
-    };
     const keys = (action: Parameters<KeybindingsManager["getKeys"]>[0]) =>
-      this.keybindings.getKeys(action).filter((key) => key !== Key.ctrl("c"))
-        .map((key) => keyLabels[key] ?? key).join("/") || "(unbound)";
+      formatKeybindingKeys(this.keybindings, action, true);
     const hint = (key: string, description: string) =>
       this.theme.fg("dim", key) + this.theme.fg("muted", ` ${description}`);
     const help = new Text([
@@ -44,7 +38,7 @@ export class SubagentSessionSelector implements Component {
     const height = Math.max(1, Math.min(Math.floor(this.tui.terminal.rows * 0.8), this.tui.terminal.rows - 2));
     // Two horizontal borders, a title, four spacers, and at most one native list information row.
     const available = height - help.length - 8;
-    if (available < 1) return compact();
+    if (available < 1) return renderWindowTooSmall(this.theme, width);
     this.pageSize = Math.max(1, Math.min(10, available, this.sessions.length));
     const list = new SelectList(this.sessions.map((session, index) => {
       const task = singleLineLabel(session.task ?? "");
