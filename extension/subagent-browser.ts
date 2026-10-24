@@ -51,7 +51,6 @@ export class SubagentBrowser implements Component {
 
   invalidate(): void {
     this.list = undefined;
-    this.detail?.invalidate();
     this.detail = undefined;
     this.detailLines = undefined;
     this.detailWidth = undefined;

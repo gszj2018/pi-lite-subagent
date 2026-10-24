@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -251,6 +252,33 @@ test("runSingleAgent aborts with SIGTERM and clears the escalation timer on clos
   // The escalation timer was cleared on close: ticking past it must not kill again.
   t.mock.timers.tick(60_000);
   assert.deepEqual(spawnMock.procs[0].kills, ["SIGTERM"]);
+});
+
+test("runSingleAgent removes its abort listener on close and preserves success after a late abort", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { agentDir, projectDir } = await withTempUserAgents(t);
+  const spawnMock = new MockSpawn([{ hold: true }]);
+  const { ctx } = createContext({ cwd: projectDir });
+  const controller = new AbortController();
+  const promise = runSingleAgent({
+    deps: makeDeps(spawnMock, agentDir), ctx, agents: [makeAgent()], agentName: "worker", task: "t",
+    dispatchDefaults: {}, signal: controller.signal, makeDetails,
+  });
+  t.after(async () => {
+    for (const proc of spawnMock.procs) proc.release();
+    await promise.catch(() => {});
+  });
+  await flushPromises();
+  assert.equal(getEventListeners(controller.signal, "abort").length, 1);
+  spawnMock.procs[0].release(0);
+  assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  // Abort before the close result's promise continuation has resumed.
+  controller.abort();
+  const { result } = await promise;
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(spawnMock.procs[0].kills, []);
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(spawnMock.procs[0].kills, []);
 });
 
 test("runSingleAgent escalates to SIGKILL when SIGTERM is ignored", async (t) => {

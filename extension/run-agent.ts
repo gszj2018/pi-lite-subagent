@@ -334,9 +334,11 @@ export async function runSingleAgent(options: RunSingleAgentOptions): Promise<Ru
         let killTimer: ReturnType<typeof setTimeout> | undefined;
         proc.on("close", () => {
           closed = true;
+          signal.removeEventListener("abort", killProc);
           if (killTimer !== undefined) clearTimeout(killTimer);
         });
         const killProc = () => {
+          if (closed) return;
           wasAborted = true;
           // Schedule the escalation before killing: a process that closes
           // synchronously must still see a registered timer to clear.
