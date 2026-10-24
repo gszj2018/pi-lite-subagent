@@ -1,6 +1,10 @@
+// noinspection JSPrimitiveTypeWrapperUsage
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asRecord, isRecord, mapWithConcurrencyLimit } from "../extension/utils.ts";
+import {
+  asRecord, asString, isRecord, isValidDateString, mapWithConcurrencyLimit, parseFiniteNumber,
+} from "../extension/utils.ts";
 import { flushPromises } from "./helpers/mocks.ts";
 
 test("record helpers accept non-null non-array objects without cloning or validating fields", () => {
@@ -17,6 +21,39 @@ test("record helpers reject null, arrays and non-object values", () => {
     assert.equal(isRecord(value), false);
     assert.equal(asRecord(value), undefined);
   }
+});
+
+test("string conversion preserves primitive strings without trimming or coercing other values", () => {
+  for (const value of ["", " \n\t ", "text", "中文🙂"]) assert.equal(asString(value), value);
+  const nonStrings = [undefined, null, true, 0, 1n, Symbol("value"), [], new String("text"), {
+    toString() { throw new Error("must not coerce objects"); },
+  }];
+  for (const value of nonStrings) assert.equal(asString(value), undefined);
+});
+
+test("finite-number parsing accepts numbers and non-blank numeric strings without integer or sign restrictions", () => {
+  const cases: [unknown, number][] = [
+    [0, 0], [-0, -0], [-2.5, -2.5], [Number.MAX_VALUE, Number.MAX_VALUE],
+    ["0", 0], [" -2.5 ", -2.5], ["1e3", 1000], ["0x10", 16],
+  ];
+  for (const [value, expected] of cases) assert.equal(parseFiniteNumber(value), expected);
+});
+
+test("finite-number parsing rejects blank, non-finite and non-numeric values without coercing objects", () => {
+  const values = [undefined, null, true, false, "", " \n\t ", "invalid", "NaN", "Infinity", "1e999",
+    NaN, Infinity, -Infinity, 1n, Symbol("value"), [], [1], new Number(1), {
+      valueOf() { throw new Error("must not coerce objects"); },
+    }];
+  for (const value of values) assert.equal(parseFiniteNumber(value), undefined);
+});
+
+test("date-string validation accepts parseable strings without requiring ISO and rejects invalid or non-string values", () => {
+  for (const value of ["2026-10-20T10:00:00.000Z", "2026-10-20", "Tue, 20 Oct 2026 10:00:00 GMT"]) {
+    assert.equal(isValidDateString(value), true);
+  }
+  const invalid = [undefined, null, true, 0, "", " ", "not a date", "2026-99-99T00:00:00Z", new Date(0),
+    new String("2026-10-20"), { toString() { throw new Error("must not coerce objects"); } }];
+  for (const value of invalid) assert.equal(isValidDateString(value), false);
 });
 
 test("concurrent mapping returns an empty result without calling the mapper for empty input", async () => {

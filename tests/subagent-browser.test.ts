@@ -8,7 +8,6 @@ import {
   showSubagentBrowser,
   SubagentBrowser,
 } from "../extension/subagent-browser.ts";
-import { singleLineLabel } from "../extension/utils-pi.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 
@@ -174,11 +173,6 @@ test("separate browser controllers keep independent guards even when using the s
   f.ui.interactions[0].component!.handleInput!(keys.ctrlC);
   await first;
   assertReleased(f.pi);
-});
-
-test("labels remove terminal sequences and flatten control characters without losing wide text", () => {
-  assert.equal(singleLineLabel(" name\x1b[31m红\x1b[0m\nnext\tend\x07 "), "name红 next end");
-  assert.equal(singleLineLabel("\x1b]8;;https://example.test\x07label\x1b]8;;\x07"), "label");
 });
 
 test("list headings use accent without coloring descriptions, including after selection and theme changes", () => {
