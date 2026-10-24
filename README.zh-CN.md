@@ -27,7 +27,7 @@ pi install npm:pi-lite-subagent
 pi install git:github.com/gszj2018/pi-lite-subagent
 ```
 
-本扩展只注册一个名为 `subagent` 的工具，不添加任何命令或配置文件。
+本扩展注册一个名为 `subagent` 的工具和四个 TUI slash 命令（见下文），不添加配置文件。
 
 ## 使用
 
@@ -120,14 +120,28 @@ frontmatter 字段：
 | 仅 `thinking`         | 调度方会话的模型  | 智能体的 `thinking`         |
 | 都未设置              | 调度方会话的模型  | 调度方会话的思考强度        |
 
+### 命令
+
+仅在 TUI 下可用：
+
+| 命令                          | 功能                                                     |
+|-------------------------------|----------------------------------------------------------|
+| `/list-subagents`             | 浏览用户级与项目级目录中发现的智能体定义。               |
+| `/view-subagents`             | 浏览当前分支的 subagent 任务、状态与结果。               |
+| `/switch-to-subagent-session` | 打开当前会话持久化的子智能体会话。                       |
+| `/return-to-parent-session`   | 返回上一级会话。                                         |
+
+两个浏览命令在任务运行中也可使用；会话跳转要求会话空闲且无排队消息。
+
 ### 会话与文件访问
 
 每个子智能体作为独立的 `pi` 进程运行，工作目录等于父会话的工作目录；工具没有 `cwd` 参数。
 
 父会话持久化时，每次子智能体运行都在 `<父会话目录>/lite-subagent/<父会话 ID>/` 下写入各自的会话文件。这些文件不会出现在常规会话列表中，可用
-`pi --session <path>` 显式打开其中一个。若父会话未持久化，或目录无法创建，子进程以 `--no-session` 运行。
+`pi --session <path>` 或当前会话中的 `/switch-to-subagent-session` 显式打开。若父会话未持久化，或目录无法创建，子进程以 `--no-session` 运行。
 
-被打开的子会话是**只读的**：发送提示词会被拒绝并给出提示，`/quit` 等 slash 命令仍可正常使用。
+被打开的子会话是**只读的**：发送提示词会被拒绝并给出提示，`/quit` 等 slash 命令仍可正常使用。通过
+`/switch-to-subagent-session` 打开的子会话可用 `/return-to-parent-session` 返回。
 
 ### 输出大小
 
@@ -187,6 +201,11 @@ pi-lite-subagent/
 │   ├── truncation.ts     # 输出截断与临时文件落盘
 │   ├── active-agent.ts   # 子会话标识、渲染器、只读拦截
 │   ├── subagent-tool.ts  # subagent 工具：参数、调度、渲染
+│   ├── subagent-rendering.ts / result-details.ts / result-parsing.ts  # 公共渲染、结果 Schema、详情解析
+│   ├── subagent-list.ts / subagent-browser.ts / subagent-history.ts   # /list-subagents、浮窗浏览、/view-subagents
+│   ├── subagent-sessions.ts / session-selector.ts                     # 子会话扫描与 inline 选单
+│   ├── session-navigation.ts / shared-state.ts / session-paths.ts     # 跳转命令、进程内共享状态、路径规则
+│   ├── utils.ts / utils-pi.ts                                         # 公共工具
 │   └── types.ts          # 共享接口与结果类型
 └── tests/                # 单元测试与集成测试
 ```

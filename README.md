@@ -31,7 +31,8 @@ pi install npm:pi-lite-subagent
 pi install git:github.com/gszj2018/pi-lite-subagent
 ```
 
-The package registers a single tool named `subagent` and adds no commands or configuration files.
+The package registers a single tool named `subagent` plus four TUI slash commands (below), and adds no configuration
+files.
 
 ## Usage
 
@@ -126,17 +127,30 @@ With `agentScope: "both"`, a project agent overrides a user agent of the same na
 | `thinking` only       | dispatching session's model    | agent `thinking`                   |
 | neither               | dispatching session's model    | dispatching session's level        |
 
+### Commands
+
+Four slash commands, available in the TUI only:
+
+| Command                       | Purpose                                                                    |
+|-------------------------------|----------------------------------------------------------------------------|
+| `/list-subagents`             | Browse the agent definitions found in the user and project directories.    |
+| `/view-subagents`             | Browse the subagent tasks of the current branch, their status and results. |
+| `/switch-to-subagent-session` | Open a persisted subagent session of the current session.                  |
+| `/return-to-parent-session`   | Go back to the previous session.                                           |
+
+The two browse commands also work while a task is running; navigation needs an idle session with no queued messages.
+
 ### Sessions and File Access
 
 Each subagent runs as its own `pi` process, in the parent session's working directory. There is no `cwd` parameter.
 
 When the parent session is persisted, each subagent run writes its own session file under
 `<parent session dir>/lite-subagent/<parent session id>/`. Those files stay out of the normal session list; open one explicitly
-with `pi --session <path>`. If the parent session is not persisted, or the directory cannot be created, the child runs with
-`--no-session`.
+with `pi --session <path>` or from the current session with `/switch-to-subagent-session`. If the parent session is not persisted,
+or the directory cannot be created, the child runs with `--no-session`.
 
 Opened subagent sessions are **inspection only**: sending a prompt is rejected with a notification. Slash commands such as `/quit`
-still work.
+still work. A child session opened with `/switch-to-subagent-session` can be left with `/return-to-parent-session`.
 
 ### Output Size
 
@@ -200,6 +214,11 @@ pi-lite-subagent/
 │   ├── truncation.ts     # Output truncation and temp-file spill
 │   ├── active-agent.ts   # Subagent session marker, renderer, read-only guard
 │   ├── subagent-tool.ts  # The subagent tool: parameters, dispatch, rendering
+│   ├── subagent-rendering.ts / result-details.ts / result-parsing.ts  # Rendering, result schema, detail parsing
+│   ├── subagent-list.ts / subagent-browser.ts / subagent-history.ts   # /list-subagents, overlay browser, /view-subagents
+│   ├── subagent-sessions.ts / session-selector.ts                     # Child session scan and inline picker
+│   ├── session-navigation.ts / shared-state.ts / session-paths.ts     # Navigation commands, in-process state, paths
+│   ├── utils.ts / utils-pi.ts                                         # Shared helpers
 │   └── types.ts          # Shared interfaces and result types
 └── tests/                # Unit and integration tests
 ```
