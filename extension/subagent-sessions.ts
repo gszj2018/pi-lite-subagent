@@ -9,7 +9,7 @@ import { isRecord, mapWithConcurrencyLimit } from "./utils.ts";
 
 export const MAX_SESSION_METADATA_BYTES = 8 * 1024 * 1024;
 export const SESSION_METADATA_CONCURRENCY = 4;
-const MAX_HEADER_BYTES = 64 * 1024;
+const MAX_HEADER_BYTES = 8 * 1024;
 
 export interface SessionHeader {
   id: string;
