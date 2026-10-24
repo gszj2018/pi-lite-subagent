@@ -6,9 +6,9 @@ import {
   type BrowserContent,
   createBrowserController,
   showSubagentBrowser,
-  singleLineLabel,
   SubagentBrowser,
 } from "../extension/subagent-browser.ts";
+import { singleLineLabel } from "../extension/utils-pi.ts";
 import { BrowserUI } from "./helpers/browser-ui.ts";
 import { type ContextOptions, createContext, flushPromises, MockPi } from "./helpers/mocks.ts";
 

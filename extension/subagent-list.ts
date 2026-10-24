@@ -4,8 +4,9 @@ import * as path from "node:path";
 import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { type AgentConfig, discoverAgents } from "./agents.ts";
-import { type BrowserContent, type BrowserController, singleLineLabel } from "./subagent-browser.ts";
+import type { BrowserContent, BrowserController } from "./subagent-browser.ts";
 import type { SubagentRunnerDeps } from "./types.ts";
+import { singleLineLabel } from "./utils-pi.ts";
 
 function definitionDetail(agent: AgentConfig, theme: Theme): Container {
   const container = new Container();

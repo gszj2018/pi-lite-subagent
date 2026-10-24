@@ -3,8 +3,8 @@
 import { DynamicBorder, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, type KeybindingsManager, matchesKey, SelectList, Text,
   type TUI, truncateToWidth } from "@earendil-works/pi-tui";
-import { singleLineLabel } from "./subagent-browser.ts";
 import type { SubagentSession } from "./subagent-sessions.ts";
+import { singleLineLabel } from "./utils-pi.ts";
 
 export class SubagentSessionSelector implements Component {
   private selectedIndex = 0;

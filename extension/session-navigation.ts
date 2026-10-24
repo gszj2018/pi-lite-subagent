@@ -5,9 +5,9 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sameSessionFile } from "./session-paths.ts";
 import { showSubagentSessionSelector } from "./session-selector.ts";
-import { singleLineLabel } from "./subagent-browser.ts";
 import { scanSubagentSessions, validateSessionFile } from "./subagent-sessions.ts";
 import type { NavigationState, NavigationPending } from "./types.ts";
+import { singleLineLabel } from "./utils-pi.ts";
 
 export function currentSessionFile(ctx: ExtensionContext): string {
   const file = ctx.sessionManager.getSessionFile();

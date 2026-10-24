@@ -7,12 +7,12 @@ import {
   type KeybindingsManager,
   matchesKey,
   SelectList,
-  stripTerminalSequences,
   Text,
   type TUI,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { singleLineLabel } from "./utils-pi.ts";
 
 export interface BrowserItem {
   id: string;
@@ -25,11 +25,6 @@ export interface BrowserContent {
   title: string;
   items: BrowserItem[];
   emptyMessage: string;
-}
-
-/** Labels are terminal text, never Markdown or executable terminal sequences. */
-export function singleLineLabel(text: string): string {
-  return stripTerminalSequences(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").trim();
 }
 
 /** Overlay maxHeight clips rather than scrolls, so the browser owns its viewport. */
