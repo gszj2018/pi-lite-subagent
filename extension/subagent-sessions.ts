@@ -1,7 +1,6 @@
 /** Read-only, bounded metadata discovery for directly related persisted child sessions. */
 
-import { constants, type Stats } from "node:fs";
-import * as fs from "node:fs/promises";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { ACTIVE_AGENT_ENTRY_TYPE } from "./active-agent.ts";
@@ -53,7 +52,7 @@ function validEntry(value: unknown): value is Record<string, unknown> {
     (value.parentId === null || typeof value.parentId === "string") && validTime(value.timestamp);
 }
 
-function validateOpenedSessionFile(before: Stats, stat: Stats): void {
+function validateOpenedSessionFile(before: fs.Stats, stat: fs.Stats): void {
   if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino) {
     throw new Error("Session file changed while opening it.");
   }
@@ -63,9 +62,9 @@ async function openSessionFile(file: string) {
   if (!path.isAbsolute(file)) {
     throw new Error("Invalid session file path.");
   }
-  const before = await fs.lstat(file);
+  const before = await fs.promises.lstat(file);
   if (!before.isFile() || before.isSymbolicLink()) throw new Error("Session path is not an ordinary file.");
-  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await fs.promises.open(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
   try {
     const stat = await handle.stat();
     validateOpenedSessionFile(before, stat);
@@ -76,7 +75,7 @@ async function openSessionFile(file: string) {
   }
 }
 
-async function readHeader(handle: fs.FileHandle): Promise<SessionHeader | undefined> {
+async function readHeader(handle: fs.promises.FileHandle): Promise<SessionHeader | undefined> {
   const buffer = Buffer.alloc(MAX_HEADER_BYTES);
   const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
   const text = buffer.subarray(0, bytesRead).toString("utf8");
@@ -153,7 +152,7 @@ export async function scanSubagentSessions(
   const directory = subagentSessionDir(sessionDir, sessionId);
   if (!directory || !path.isAbsolute(sessionDir)) throw new Error("This session has no persistent session directory.");
   await validateSessionFile(parentFile);
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile() && path.extname(entry.name) === ".jsonl");
   const inspected = await mapWithConcurrencyLimit(files, SESSION_METADATA_CONCURRENCY, async (entry) => {
     try {
