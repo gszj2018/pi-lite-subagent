@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-10-26
+
+### Added
+- Mouse-wheel scrolling for the detail views of `/list-subagents` and `/view-subagents` in fullscreen mode.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added
