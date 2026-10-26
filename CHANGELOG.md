@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-10-26
+
+### Fixed
+- Remove misleading PgUp/PgDn paging hints from the subagent session selector, where fullscreen mode intercepts these keys.
+
 ## [0.2.1] - 2026-10-26
 
 ### Added
