@@ -32,7 +32,6 @@ export class SubagentSessionSelector implements Component {
       this.theme.fg("dim", key) + this.theme.fg("muted", ` ${description}`);
     const help = new Text([
       hint(`${keys("tui.select.up")}/${keys("tui.select.down")}`, "navigate"),
-      hint(`${keys("tui.select.pageUp")}/${keys("tui.select.pageDown")}`, "page"),
       hint(keys("tui.select.confirm"), "open"), hint(keys("tui.select.cancel"), "cancel"), hint("Ctrl+C", "close"),
     ].join("  "), 0, 0).render(innerWidth);
     const height = Math.max(1, Math.min(Math.floor(this.tui.terminal.rows * 0.8), this.tui.terminal.rows - 2));
