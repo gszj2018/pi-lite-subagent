@@ -9,6 +9,8 @@ import {
   SelectList,
   Text,
   type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
@@ -189,6 +191,16 @@ export class SubagentBrowser implements Component {
     }
     lines.push(separator(), ...help.map(row), border(`└${"─".repeat(innerWidth)}┘`));
     return lines;
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.disposed || !this.showingDetail || event.type !== "wheel" || !event.wheelDelta) return undefined;
+    // Preserve the offset until render rebuilds an invalidated detail layout.
+    if (!this.detailLines) return { handled: true, render: false };
+    const previous = this.scrollTop;
+    const maxScroll = Math.max(0, this.detailLines.length - this.viewportHeight);
+    this.scrollTop = Math.max(0, Math.min(maxScroll, this.scrollTop + event.wheelDelta));
+    return { handled: true, render: this.scrollTop !== previous };
   }
 
   handleInput(data: string): void {

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager, Text, TUI_KEYBINDINGS, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  KeybindingsManager,
+  Text,
+  TUI_KEYBINDINGS,
+  type TuiMouseEvent,
+  stripTerminalSequences,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import {
   type BrowserContent,
   createBrowserController,
@@ -15,6 +22,13 @@ const keys = {
   down: "\x1b[B", up: "\x1b[A", enter: "\r", escape: "\x1b", ctrlC: "\x03",
   pageDown: "\x1b[6~", pageUp: "\x1b[5~", home: "\x1b[H", end: "\x1b[F",
 };
+
+function wheel(wheelDelta: number): TuiMouseEvent {
+  return {
+    type: "wheel", button: "none", x: 2, y: 5, screenX: 12, screenY: 10,
+    width: 100, height: 24, shift: false, alt: false, ctrl: false, wheelDelta,
+  };
+}
 
 function content(count = 12): BrowserContent {
   return {
@@ -293,6 +307,57 @@ test("native list scroll information is preserved between a separate title and f
   assert.equal(closes, 1);
 });
 
+test("wheels scroll detail lines and ranges without moving fixed regions or changing the selected item", () => {
+  const ui = new BrowserUI();
+  ui.terminal.rows = 15;
+  const browser = new SubagentBrowser(content(2), ui.tui, ui.theme, ui.keybindings, () => {});
+  browser.handleInput(keys.down);
+  const list = plain(browser);
+  browser.handleInput(keys.enter);
+  const initial = plain(browser);
+  const start = sections(initial);
+  const viewport = start[2].length;
+  assert.deepEqual(browser.handleMouse(wheel(-1)), { handled: true, render: false });
+  assert.deepEqual(browser.handleMouse(wheel(3)), { handled: true, render: true });
+  const scrolled = sections(plain(browser));
+  assert.deepEqual(scrolled[0], start[0]);
+  assert.deepEqual(scrolled[1], start[1]);
+  assert.equal(hintText(scrolled[3]), hintText(start[3]));
+  assert.match(scrolled[2][0], /line-4\s/);
+  assert.ok(scrolled[3].at(-1)!.endsWith(`4–${viewport + 3}/60│`));
+  assert.deepEqual(browser.handleMouse(wheel(-2)), { handled: true, render: true });
+  assert.match(sections(plain(browser))[2][0], /line-2\s/);
+  browser.handleMouse(wheel(-100));
+  assert.deepEqual(plain(browser), initial);
+  browser.handleMouse(wheel(100));
+  const last = plain(browser);
+  assert.match(sections(last)[2].at(-1)!, /line-60\s/);
+  assert.deepEqual(browser.handleMouse(wheel(1)), { handled: true, render: false });
+  assert.deepEqual(plain(browser), last);
+  ui.terminal.rows = 30;
+  const resized = sections(plain(browser));
+  assert.match(resized[2].at(-1)!, /line-60\s/);
+  assert.deepEqual(browser.handleMouse(wheel(-1)), { handled: true, render: true });
+  assert.match(sections(plain(browser))[2].at(-1)!, /line-59\s/);
+  browser.handleInput(keys.escape);
+  assert.deepEqual(plain(browser), list);
+});
+
+test("non-wheel and zero-delta mouse events leave detail state and rendering unchanged", () => {
+  const ui = new BrowserUI();
+  const browser = new SubagentBrowser(content(2), ui.tui, ui.theme, ui.keybindings, () => {});
+  browser.handleInput(keys.enter);
+  const initial = plain(browser);
+  const requests = ui.renderRequests;
+  for (const type of ["press", "release", "move", "drag", "click"] as const) {
+    assert.equal(browser.handleMouse({ ...wheel(1), type, button: "left" }), undefined);
+  }
+  assert.equal(browser.handleMouse(wheel(0)), undefined);
+  assert.equal(browser.handleMouse({ ...wheel(1), wheelDelta: undefined }), undefined);
+  assert.deepEqual(plain(browser), initial);
+  assert.equal(ui.renderRequests, requests);
+});
+
 test("a short list keeps a blank information slot and narrow footers wrap without losing help", () => {
   const ui = new BrowserUI();
   ui.terminal.rows = 40;
@@ -389,7 +454,12 @@ test("detail footer ranges handle an entirely visible or empty body", () => {
     data.items[0].createDetail = () => new Text(text, 0, 0);
     const browser = new SubagentBrowser(data, ui.tui, ui.theme, ui.keybindings, () => {});
     browser.handleInput(keys.enter);
-    assert.ok(sections(plain(browser))[3].at(-1)!.endsWith(`${expected}│`));
+    const initial = plain(browser);
+    assert.ok(sections(initial)[3].at(-1)!.endsWith(`${expected}│`));
+    for (const delta of [-1, 1]) {
+      assert.deepEqual(browser.handleMouse(wheel(delta)), { handled: true, render: false });
+      assert.deepEqual(plain(browser), initial);
+    }
   }
 });
 
@@ -447,6 +517,7 @@ test("detail layout is cached by width and rebuilt on theme invalidation", () =>
   const requests = ui.renderRequests;
   browser.dispose();
   browser.handleInput(keys.down);
+  assert.equal(browser.handleMouse(wheel(1)), undefined);
   assert.deepEqual(browser.render(50), []);
   assert.equal(ui.renderRequests, requests, "disposed components cannot request renders");
 });
@@ -481,7 +552,7 @@ test("content refresh preserves selected identity and body scroll, even when new
   browser.handleInput(keys.down);
   browser.handleInput(keys.enter);
   plain(browser);
-  for (let i = 0; i < 3; i++) browser.handleInput(keys.down);
+  assert.deepEqual(browser.handleMouse(wheel(3)), { handled: true, render: true });
   const before = sections(plain(browser));
   const next = content(3);
   next.items = [next.items[2], data.items[0], {
@@ -489,10 +560,14 @@ test("content refresh preserves selected identity and body scroll, even when new
     createDetail: () => new Text(Array.from({ length: 80 }, (_, index) => `line-${index + 1}`).join("\n"), 0, 0),
   }];
   browser.updateContent(next);
+  assert.deepEqual(browser.handleMouse(wheel(1)), { handled: true, render: false },
+    "pending layout rebuilds consume wheels without resetting the preserved offset");
   const after = sections(plain(browser));
   assert.match(after[1][0], /updated selected task/);
   assert.equal(after[2][0], before[2][0], "refresh never auto-scrolls to the newest output");
   assert.match(after[3].at(-1)!, /\/80│$/);
+  assert.deepEqual(browser.handleMouse(wheel(1)), { handled: true, render: true });
+  assert.match(sections(plain(browser))[2][0], /line-5\s/);
   browser.updateContent({ ...data, items: [data.items[0]] });
   assert.match(sections(plain(browser))[1][0], /→ agent-0/);
   assert.doesNotMatch(plain(browser).join("\n"), /line-4/);
