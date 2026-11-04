@@ -20,6 +20,7 @@ import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { discoverAgents } from "./agents.ts";
+import { getMaxConcurrency } from "./env-vars.ts";
 import { getDisplayItems, parseSubagentDetails } from "./result-parsing.ts";
 import { emptyUsageStats, isFailedResult, runSingleAgent } from "./run-agent.ts";
 import { appendDisplayItems, formatToolCall, formatUsageStats } from "./subagent-rendering.ts";
@@ -36,7 +37,6 @@ import type {
 import { mapWithConcurrencyLimit } from "./utils.ts";
 
 const MAX_TASKS = 8;
-const MAX_CONCURRENCY = 4;
 
 type ExecutionMode = "parallel" | "chain";
 
@@ -206,7 +206,7 @@ export function registerSubagentTool(pi: ExtensionAPI, deps: SubagentRunnerDeps)
         }
       };
 
-      const runResults = await mapWithConcurrencyLimit(tasks, MAX_CONCURRENCY, async (t, index) => {
+      const runResults = await mapWithConcurrencyLimit(tasks, getMaxConcurrency(deps.env, MAX_TASKS), async (t, index) => {
         const { result, output } = await runSingleAgent({
           deps,
           ctx,

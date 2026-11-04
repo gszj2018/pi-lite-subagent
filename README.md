@@ -10,7 +10,7 @@ agent is defined by a plain Markdown file.
 
 - **Isolated contexts** — each task runs in its own `pi` child process, so intermediate tool output never pollutes the parent
   conversation.
-- **Two dispatch modes** — `parallel` (up to 4 concurrent tasks) and `chain` (sequential, piping output with a `{previous}`
+- **Two dispatch modes** — `parallel` (up to 4 concurrent tasks by default) and `chain` (sequential, piping output with a `{previous}`
   placeholder).
 - **Markdown agent definitions** — describe an agent with YAML frontmatter plus a system prompt body.
 - **Per-agent model and thinking level** — set them on the agent, or fall back to the dispatching session.
@@ -84,7 +84,7 @@ The `subagent` tool takes a task list and an optional mode:
 | `mode`       | `"parallel"` \| `"chain"`           | `parallel` | How the task list is executed.                                          |
 | `agentScope` | `"user"` \| `"project"` \| `"both"` | `user`     | Which agent directories to read.                                        |
 
-**Parallel** — up to 4 tasks run at once; results come back as one `### [agent] status` section per task.
+**Parallel** — up to 4 tasks run at once (see `PI_SUBAGENT_MAX_CONCURRENCY`); results come back as one `### [agent] status` section per task.
 
 ```json
 {
@@ -167,6 +167,7 @@ The extension sets these variables for its own child processes and recognizes th
 | `PI_SUBAGENT_DEPTH`          | Depth of the current process. Absent in the root session; `1` in a subagent process.                                       |
 | `PI_SUBAGENT_NAME`           | Agent name of the current subagent session.                                                                                |
 | `PI_SUBAGENT_PARENT_SESSION` | Session ID of the root session, set at `session_start` and removed at `session_shutdown`; inherited unchanged by children. |
+| `PI_SUBAGENT_MAX_CONCURRENCY` | Set by you: how many tasks of one `parallel` call run at once, from 1 to 8 (default 4). Use `1` when one local GPU serves the model; raise it when the server has several slots. |
 
 `PI_SUBAGENT_PARENT_SESSION` follows the convention used by
 [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system), so permission
@@ -177,7 +178,7 @@ asks from a subagent can be routed back to the parent session. A subagent proces
 - **No nested subagents.** Depth is limited to one level (hard-coded, not configurable); subagent processes do not register the
   `subagent` tool.
 - **No retries.** A failed chain step aborts the remaining steps; individual tasks are not retried.
-- **Task limit.** At most 8 tasks per call; at most 4 run concurrently in `parallel`.
+- **Task limit.** At most 8 tasks per call; at most 4 run concurrently in `parallel` unless `PI_SUBAGENT_MAX_CONCURRENCY` says otherwise.
 - **Inherited extensions.** Child processes inherit the parent's `--extension`/`-e` and `--no-extensions`/`-ne` arguments, so
   extensions loaded manually on the command line are also available to subagents.
 

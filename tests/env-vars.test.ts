@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEFAULT_MAX_CONCURRENCY,
   DEPTH_ENV,
+  MAX_CONCURRENCY_ENV,
   MAX_SUBAGENT_DEPTH,
   NAME_ENV,
   PARENT_SESSION_ENV,
   buildChildEnv,
+  getMaxConcurrency,
   getSubagentName,
   isSubagentSession,
   isSubagentToolAllowed,
@@ -135,4 +138,16 @@ test("registerSessionEnv reports invalid session ids and getter errors without w
   // Shutdown without a prior write stays a no-op.
   await pi.emitLifecycle("session_shutdown", blank.ctx);
   assert.equal(env[PARENT_SESSION_ENV], undefined);
+});
+
+test("getMaxConcurrency reads PI_SUBAGENT_MAX_CONCURRENCY, capped at the task limit", () => {
+  assert.equal(getMaxConcurrency({}, 8), DEFAULT_MAX_CONCURRENCY);
+  for (const value of ["", "   ", "0", "-1", "1.5", "abc", "2x"]) {
+    assert.equal(getMaxConcurrency({ [MAX_CONCURRENCY_ENV]: value }, 8), DEFAULT_MAX_CONCURRENCY, value);
+  }
+
+  assert.equal(getMaxConcurrency({ [MAX_CONCURRENCY_ENV]: "1" }, 8), 1);
+  assert.equal(getMaxConcurrency({ [MAX_CONCURRENCY_ENV]: " 6 " }, 8), 6);
+  assert.equal(getMaxConcurrency({ [MAX_CONCURRENCY_ENV]: "8" }, 8), 8);
+  assert.equal(getMaxConcurrency({ [MAX_CONCURRENCY_ENV]: "16" }, 8), 8, "capped at the task limit");
 });
