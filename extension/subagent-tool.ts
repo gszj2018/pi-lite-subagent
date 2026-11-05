@@ -15,7 +15,6 @@
  */
 
 import * as path from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -40,6 +39,13 @@ const MAX_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 
 type ExecutionMode = "parallel" | "chain";
+
+function StringEnum<const T extends readonly string[]>(
+  values: T,
+  options?: { description?: string; default?: T[number] },
+) {
+  return Type.Unsafe<T[number]>({ type: "string", enum: [...values], ...options });
+}
 
 const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),

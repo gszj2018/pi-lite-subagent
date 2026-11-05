@@ -104,6 +104,11 @@ test("tool call rendering validates parameters before rendering either mode", as
       else assert.match(text, /\{previous\}/);
     }
   }
+  for (const agentScope of ["user", "project", "both"] as const) {
+    const component = tool.renderCall({ tasks: [task], agentScope }, theme, { expanded: false });
+    const text = component.render(100).map(stripTerminalSequences).join("\n");
+    assert.match(text, new RegExp(`\\[${agentScope}\\]`));
+  }
   for (const args of invalid) {
     for (const expanded of [false, true]) {
       assert.throws(() => tool.renderCall(args, theme, { expanded }), {
