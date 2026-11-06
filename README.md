@@ -84,7 +84,7 @@ The `subagent` tool takes a task list and an optional mode:
 | `mode`       | `"parallel"` \| `"chain"`           | `parallel` | How the task list is executed.                                          |
 | `agentScope` | `"user"` \| `"project"` \| `"both"` | `user`     | Which agent directories to read.                                        |
 
-**Parallel** — up to 4 tasks run at once (see `PI_SUBAGENT_MAX_CONCURRENCY`); results come back as one `### [agent] status` section per task.
+**Parallel** — up to 4 tasks run at once by default (see `PI_SUBAGENT_MAX_CONCURRENCY`); results come back as one `### [agent] status` section per task.
 
 ```json
 {
@@ -167,18 +167,24 @@ The extension sets these variables for its own child processes and recognizes th
 | `PI_SUBAGENT_DEPTH`          | Depth of the current process. Absent in the root session; `1` in a subagent process.                                       |
 | `PI_SUBAGENT_NAME`           | Agent name of the current subagent session.                                                                                |
 | `PI_SUBAGENT_PARENT_SESSION` | Session ID of the root session, set at `session_start` and removed at `session_shutdown`; inherited unchanged by children. |
-| `PI_SUBAGENT_MAX_CONCURRENCY` | Set by you: how many tasks of one `parallel` call run at once, from 1 to 8 (default 4). Use `1` when one local GPU serves the model; raise it when the server has several slots. |
 
 `PI_SUBAGENT_PARENT_SESSION` follows the convention used by
 [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system), so permission
 asks from a subagent can be routed back to the parent session. A subagent process never overwrites that pointer.
+
+One further variable is set by you and only read by the extension, never written:
+
+| Variable                      | Meaning                                                                                                                                                    |
+|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PI_SUBAGENT_MAX_CONCURRENCY` | How many tasks of one `parallel` call run at once, 1–8 and never more than the maximum task count. Default `4`; `1` is recommended for a single local GPU. |
 
 ## Notes and Limitations
 
 - **No nested subagents.** Depth is limited to one level (hard-coded, not configurable); subagent processes do not register the
   `subagent` tool.
 - **No retries.** A failed chain step aborts the remaining steps; individual tasks are not retried.
-- **Task limit.** At most 8 tasks per call; at most 4 run concurrently in `parallel` unless `PI_SUBAGENT_MAX_CONCURRENCY` says otherwise.
+- **Task limit.** At most 8 tasks per call; at most 4 run concurrently in `parallel` by default, adjustable with
+  `PI_SUBAGENT_MAX_CONCURRENCY`.
 - **Inherited extensions.** Child processes inherit the parent's `--extension`/`-e` and `--no-extensions`/`-ne` arguments, so
   extensions loaded manually on the command line are also available to subagents.
 
