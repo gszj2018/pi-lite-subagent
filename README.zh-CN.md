@@ -212,6 +212,7 @@ pi-lite-subagent/
 │   ├── subagent-sessions.ts / session-selector.ts                     # 子会话扫描与 inline 选单
 │   ├── session-navigation.ts / shared-state.ts / session-paths.ts     # 跳转命令、进程内共享状态、路径规则
 │   ├── utils.ts / utils-pi.ts                                         # 公共工具
+│   ├── utils-compat.ts    # 宿主 StringEnum 兼容包装
 │   └── types.ts          # 共享接口与结果类型
 └── tests/                # 单元测试与集成测试
 ```
@@ -220,6 +221,9 @@ pi-lite-subagent/
 
 智能体发现、进程调用与渲染逻辑改编自 Pi Coding Agent 自带的
 [subagent 示例](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent)，并做了较大幅度的重组与扩展。详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+
+感谢 [@sawansri](https://github.com/sawansri) 提交的
+[PR #1](https://github.com/gszj2018/pi-lite-subagent/pull/1)，使 `parallel` 并发上限可通过 `PI_SUBAGENT_MAX_CONCURRENCY` 配置。
 
 ## 许可
 

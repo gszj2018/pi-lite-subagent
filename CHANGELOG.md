@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [0.3.0] - 2026-11-06
 
 ### Added
-- `PI_SUBAGENT_MAX_CONCURRENCY` to set how many tasks of one `parallel` call run at once (default `4`, capped at the per-call task limit).
+- `PI_SUBAGENT_MAX_CONCURRENCY` to set how many tasks of one `parallel` call run at once ([PR #1](https://github.com/gszj2018/pi-lite-subagent/pull/1), default `4`, capped at the per-call task limit).
 
 ### Fixed
 - Introduce a local `StringEnum` compatibility wrapper, fixing development-time typecheck errors with Pi 1.5.0; runtime behavior is unchanged.

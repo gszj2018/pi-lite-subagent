@@ -226,6 +226,7 @@ pi-lite-subagent/
 │   ├── subagent-sessions.ts / session-selector.ts                     # Child session scan and inline picker
 │   ├── session-navigation.ts / shared-state.ts / session-paths.ts     # Navigation commands, in-process state, paths
 │   ├── utils.ts / utils-pi.ts                                         # Shared helpers
+│   ├── utils-compat.ts    # Host StringEnum compatibility wrapper
 │   └── types.ts          # Shared interfaces and result types
 └── tests/                # Unit and integration tests
 ```
@@ -235,6 +236,10 @@ pi-lite-subagent/
 The agent-discovery, process-invocation, and rendering logic derives from the
 [subagent example](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) shipped with
 Pi Coding Agent, substantially reorganized and extended. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+Thanks to [@sawansri](https://github.com/sawansri) for
+[PR #1](https://github.com/gszj2018/pi-lite-subagent/pull/1), which made the `parallel` concurrency limit configurable with
+`PI_SUBAGENT_MAX_CONCURRENCY`.
 
 ## License
 
