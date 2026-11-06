@@ -34,18 +34,12 @@ import type {
   SubagentRunnerDeps,
   AgentScope
 } from "./types.ts";
+import { StringEnum } from "./utils-compat.ts";
 import { mapWithConcurrencyLimit } from "./utils.ts";
 
 const MAX_TASKS = 8;
 
 type ExecutionMode = "parallel" | "chain";
-
-function StringEnum<const T extends readonly string[]>(
-  values: T,
-  options?: { description?: string; default?: T[number] },
-) {
-  return Type.Unsafe<T[number]>({ type: "string", enum: [...values], ...options });
-}
 
 const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),
