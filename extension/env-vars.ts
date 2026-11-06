@@ -9,6 +9,8 @@
  *   parent session (depth 0); no code path may ever write "0".
  * - `PI_SUBAGENT_NAME`: agent name of the subagent owning the current process; written
  *   only into the child-process environment at spawn time.
+ * - `PI_SUBAGENT_MAX_CONCURRENCY`: how many tasks of one `parallel` call run at once.
+ *   Read by the user, never written.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -17,7 +19,9 @@ import type { ProcessEnvLike } from "./types.ts";
 export const PARENT_SESSION_ENV = "PI_SUBAGENT_PARENT_SESSION";
 export const DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 export const NAME_ENV = "PI_SUBAGENT_NAME";
+export const MAX_CONCURRENCY_ENV = "PI_SUBAGENT_MAX_CONCURRENCY";
 export const MAX_SUBAGENT_DEPTH = 1; // hard-coded; not configurable yet
+export const DEFAULT_MAX_CONCURRENCY = 4;
 
 /**
  * Valid depth: an integer string >= 1 after trimming. Anything else
@@ -29,6 +33,18 @@ export function parseSubagentDepth(value: string | undefined): number | undefine
   if (!/^\d+$/.test(trimmed)) return undefined;
   const depth = Number(trimmed);
   return Number.isSafeInteger(depth) && depth >= 1 ? depth : undefined;
+}
+
+/**
+ * Parallel-mode concurrency: `PI_SUBAGENT_MAX_CONCURRENCY` when it is an integer >= 1,
+ * capped at `limit` (the per-call task limit, beyond which it has no effect); otherwise the
+ * default. One local GPU usually wants 1; servers with several slots want more.
+ */
+export function getMaxConcurrency(env: ProcessEnvLike, limit: number): number {
+  const trimmed = env[MAX_CONCURRENCY_ENV]?.trim() ?? "";
+  if (!/^\d+$/.test(trimmed)) return DEFAULT_MAX_CONCURRENCY;
+  const value = Number(trimmed);
+  return value >= 1 ? Math.min(value, limit) : DEFAULT_MAX_CONCURRENCY;
 }
 
 /** Whether the current session runs inside a subagent process (valid depth >= 1). */
